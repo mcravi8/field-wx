@@ -1,0 +1,14 @@
+{
+  "name": "field-wx-backend",
+  "version": "1.0.0",
+  "description": "FIELD WX paragliding weather app backend",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  }
+}
