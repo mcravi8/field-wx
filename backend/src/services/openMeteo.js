@@ -50,15 +50,19 @@ const IMPERIAL = {
 
 /**
  * Decide the unit system for a location.
- * Imperial iff the coordinate is in the continental-US box OR the (optional)
- * timezone is a US zone. Everything else is metric.
+ * An explicit `override` ('metric' | 'imperial') from the user's settings wins.
+ * Otherwise imperial iff the coordinate is in the continental-US box OR the
+ * (optional) timezone is a US zone. Everything else is metric.
  *
  * @param {number} lat
  * @param {number} lon
  * @param {string} [tz] - IANA timezone from a prior Open-Meteo response (secondary check)
+ * @param {string} [override] - 'metric' | 'imperial' to force a system (settings)
  * @returns {{system, temperature_unit, wind_speed_unit, precipitation_unit, units}}
  */
-function resolveUnits(lat, lon, tz) {
+function resolveUnits(lat, lon, tz, override) {
+  if (override === 'metric') return METRIC;
+  if (override === 'imperial') return IMPERIAL;
   const imperial = inUsBox(Number(lat), Number(lon)) || isUsTimezone(tz);
   return imperial ? IMPERIAL : METRIC;
 }

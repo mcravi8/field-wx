@@ -80,6 +80,9 @@ function metricWindgram(wg, system) {
 
 const first = (arr) => (Array.isArray(arr) && arr.length ? arr[0] : undefined);
 
+// Optional ?units=metric|imperial settings override (anything else → region auto-detect).
+const unitsParam = (q) => (q === 'metric' || q === 'imperial') ? q : undefined;
+
 /**
  * Fetch + resolve units + transform. Units are decided from the coordinate
  * (US box) first; the timezone returned by Open-Meteo is a secondary check, and
@@ -87,10 +90,10 @@ const first = (arr) => (Array.isArray(arr) && arr.length ? arr[0] : undefined);
  *
  * @returns {{ current, hourly, daily, flight, altitudeWinds, units, system }}
  */
-async function loadWeather(lat, lon, tz, svc, needAltitude) {
+async function loadWeather(lat, lon, tz, svc, needAltitude, unitsOverride) {
   const { t, p } = svc;
 
-  const u0 = resolveUnits(lat, lon);
+  const u0 = resolveUnits(lat, lon, undefined, unitsOverride);
   let forecast, alt;
   if (needAltitude) {
     [forecast, alt] = await Promise.all([fetchForecast(lat, lon, tz, u0), fetchAltitude(lat, lon, tz, u0)]);
@@ -98,8 +101,9 @@ async function loadWeather(lat, lon, tz, svc, needAltitude) {
     forecast = await fetchForecast(lat, lon, tz, u0);
   }
 
-  // Secondary check on the returned timezone; re-fetch only if it flips the system.
-  let u = resolveUnits(lat, lon, forecast && forecast.timezone);
+  // An explicit settings override is authoritative; otherwise use the returned
+  // timezone as a secondary check and re-fetch only if it flips the system.
+  let u = unitsOverride ? u0 : resolveUnits(lat, lon, forecast && forecast.timezone);
   if (u.system !== u0.system) {
     if (needAltitude) {
       [forecast, alt] = await Promise.all([fetchForecast(lat, lon, tz, u), fetchAltitude(lat, lon, tz, u)]);
@@ -147,8 +151,8 @@ router.get('/', async (req, res) => {
 
   const tz = req.query.tz || 'auto';
   try {
-    const out = await getCached(`weather:${lat}:${lon}:${tz}`, async () => {
-      const w = await loadWeather(lat, lon, tz, svc, true);
+    const out = await getCached(`weather:${lat}:${lon}:${tz}:${unitsParam(req.query.units) || 'auto'}`, async () => {
+      const w = await loadWeather(lat, lon, tz, svc, true, unitsParam(req.query.units));
       return { current: w.current, hourly: w.hourly, daily: w.daily, flight: w.flight, units: w.units };
     });
     res.json(out);
@@ -164,8 +168,8 @@ router.get('/now', async (req, res) => {
 
   const tz = req.query.tz || 'auto';
   try {
-    const out = await getCached(`weather:now:${lat}:${lon}:${tz}`, async () => {
-      const w = await loadWeather(lat, lon, tz, svc, true);
+    const out = await getCached(`weather:now:${lat}:${lon}:${tz}:${unitsParam(req.query.units) || 'auto'}`, async () => {
+      const w = await loadWeather(lat, lon, tz, svc, true, unitsParam(req.query.units));
       return { current: w.current, flight: w.flight, units: w.units };
     });
     res.json(out);
@@ -181,8 +185,8 @@ router.get('/week', async (req, res) => {
 
   const tz = req.query.tz || 'auto';
   try {
-    const out = await getCached(`weather:week:${lat}:${lon}:${tz}`, async () => {
-      const w = await loadWeather(lat, lon, tz, svc, false);
+    const out = await getCached(`weather:week:${lat}:${lon}:${tz}:${unitsParam(req.query.units) || 'auto'}`, async () => {
+      const w = await loadWeather(lat, lon, tz, svc, false, unitsParam(req.query.units));
       return { daily: w.daily, units: w.units };
     });
     res.json(out);
@@ -198,8 +202,8 @@ router.get('/altitude', async (req, res) => {
 
   const tz = req.query.tz || 'auto';
   try {
-    const out = await getCached(`weather:altitude:${lat}:${lon}:${tz}`, async () => {
-      const w = await loadWeather(lat, lon, tz, svc, true);
+    const out = await getCached(`weather:altitude:${lat}:${lon}:${tz}:${unitsParam(req.query.units) || 'auto'}`, async () => {
+      const w = await loadWeather(lat, lon, tz, svc, true, unitsParam(req.query.units));
       const f = w.flight;
       return {
         altitudeWinds: w.altitudeWinds,
