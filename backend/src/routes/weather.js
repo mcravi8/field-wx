@@ -113,10 +113,16 @@ async function loadWeather(lat, lon, tz, svc, needAltitude, unitsOverride) {
   }
   const system = u.system;
 
+  // Single representative "now" hour = the CURRENT local hour, not index 0.
+  // timezone=auto makes the hourly arrays start at local midnight, so reading [0]
+  // pins thermals/ceiling/altitude winds to midnight (wrong by up to ~12h).
+  const idx = t.findCurrentHourIndex(forecast);
+  const at = (arr, i) => (Array.isArray(arr) && arr.length ? arr[Math.min(i, arr.length - 1)] : undefined);
+
   const current = t.transformCurrent(forecast, system);
   const hourly = t.transformHourly(forecast, 24);
   const daily = t.transformDaily(forecast);
-  const altitudeWinds = needAltitude ? t.transformAltitudeWinds(alt, 0) : [];
+  const altitudeWinds = needAltitude ? t.transformAltitudeWinds(alt, idx) : [];
   const windgram = needAltitude ? t.transformWindgram(alt, forecast, 24) : null;
 
   // Flight physics in metric (display values left untouched).
@@ -126,9 +132,9 @@ async function loadWeather(lat, lon, tz, svc, needAltitude, unitsOverride) {
   const ah = (alt && alt.hourly) || {};
   const ctx = {
     altitudeWinds,
-    cape: first(fh.cape) ?? first(ah.cape) ?? 0,
-    liftedIndex: first(fh.lifted_index) ?? first(ah.lifted_index) ?? 0,
-    boundaryLayer: first(fh.boundary_layer_height) ?? first(ah.boundary_layer_height) ?? 0,
+    cape: at(fh.cape, idx) ?? at(ah.cape, idx) ?? 0,
+    liftedIndex: at(fh.lifted_index, idx) ?? at(ah.lifted_index, idx) ?? 0,
+    boundaryLayer: at(fh.boundary_layer_height, idx) ?? at(ah.boundary_layer_height, idx) ?? 0,
     elevation: (forecast && forecast.elevation) ?? 0,
     hourly: mHourly,
   };

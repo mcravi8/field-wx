@@ -191,11 +191,13 @@ function transformCurrent(raw, system = 'metric') {
     dewpoint = Math.round((t - ((100 - rh) / 5)) * 10) / 10;
   }
 
-  // Ceiling: use boundary_layer_height from the first hourly slot if available
+  // Ceiling: boundary_layer_height at the CURRENT hour. timezone=auto starts the
+  // hourly arrays at local midnight, so index 0 would pin the ceiling to midnight.
   let ceiling = null;
   const blhArr = safeArr(h, 'boundary_layer_height');
-  if (blhArr.length > 0 && blhArr[0] != null) {
-    ceiling = Math.round(safeNum(blhArr[0], 0));
+  const ci = findCurrentHourIndex(raw);
+  if (blhArr.length > ci && blhArr[ci] != null) {
+    ceiling = Math.round(safeNum(blhArr[ci], 0));
   }
 
   // Visibility: Open-Meteo always reports metres (no visibility_unit param),
@@ -600,4 +602,5 @@ module.exports = {
   transformDaily,
   transformAltitudeWinds,
   transformWindgram,
+  findCurrentHourIndex,
 };
