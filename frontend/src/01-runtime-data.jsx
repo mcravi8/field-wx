@@ -225,20 +225,20 @@ const WeatherAPI = (function () {
     const clamp = function (v) { return Math.max(0.06, Math.min(0.94, v)); };
     return m.map(function (p) { return { name: p.name, lat: p.lat, lon: p.lon, dist: p.dist, x: clamp(0.5 + p.dE / (2 * span)), y: clamp(0.5 - p.dN / (2 * span)) }; });
   }
-  function singlePointMap(current) {
-    return { pts: [{ name: "LOCAL", x: 0.5, y: 0.5, primary: true, t: Math.round(current.temp) }], dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
+  function singlePointMap(current, lat, lon) {
+    return { pts: [{ name: "LOCAL", x: 0.5, y: 0.5, lat: +lat, lon: +lon, primary: true, t: Math.round(current.temp) }], lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
   }
   async function fetchTempmap(lat, lon, idx, current, u) {
     let towns; try { towns = await fetchNearbyTowns(lat, lon); } catch (e) { towns = []; }
-    if (!towns.length) return singlePointMap(current); // e.g. open water, or GeoNames account not yet enabled
+    if (!towns.length) return singlePointMap(current, lat, lon); // e.g. open water, or GeoNames account not yet enabled
     const placed = projectTowns(towns, lat, lon);
     const lats = placed.map(function (t) { return t.lat; }).join(","), lons = placed.map(function (t) { return t.lon; }).join(",");
     const j = await getJson(OM + "?latitude=" + lats + "&longitude=" + lons + "&hourly=temperature_2m&temperature_unit=" + u.temperature_unit + "&timezone=auto&forecast_days=1", "tempmap");
     const arr = Array.isArray(j) ? j : [j];
     // towns share the active site's timezone (<=40km) so the primary's local-hour index applies to all (NOT raw UTC[0])
     let nearest = 0; placed.forEach(function (p, k) { if (p.dist < placed[nearest].dist) nearest = k; });
-    const pts = placed.map(function (t, i) { const hh = arr[i] && arr[i].hourly, tp = hh && hh.temperature_2m; const v = (tp && tp[idx] != null) ? tp[idx] : ((tp && tp.length) ? tp[0] : current.temp); return { name: t.name, x: t.x, y: t.y, primary: i === nearest, t: Math.round(v) }; });
-    return { pts: pts, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
+    const pts = placed.map(function (t, i) { const hh = arr[i] && arr[i].hourly, tp = hh && hh.temperature_2m; const v = (tp && tp[idx] != null) ? tp[idx] : ((tp && tp.length) ? tp[0] : current.temp); return { name: t.name, x: t.x, y: t.y, lat: t.lat, lon: t.lon, primary: i === nearest, t: Math.round(v) }; });
+    return { pts: pts, lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
   }
   // ---- derived cloud base (LCL): Open-Meteo cloud_base is null, so compute the lifting condensation level ----
   function cloudBaseM(current, elevation) {
@@ -331,7 +331,7 @@ const WeatherAPI = (function () {
     flight.windgram = transformWindgram(alt, forecast, 24);
     flight.sounding = buildSounding(alt, forecast, (forecast && forecast.elevation) || 0, idx);
     try { flight.tempmap = await fetchTempmap(lat, lon, idx, current, u); }
-    catch (e) { flight.tempmap = singlePointMap(current); }
+    catch (e) { flight.tempmap = singlePointMap(current, lat, lon); }
     return { current: current, hourly: hourly, daily: daily, flight: flight, units: u.units, isNight: computeIsNight(forecast) };
   }
 

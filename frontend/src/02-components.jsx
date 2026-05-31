@@ -181,4 +181,135 @@ function WxTabBar({ active, onNav }) {
 }
 /* ===== end Windgram screen ===== */
 
+/* ===== FIELD WX · TopoMap — Leaflet + OpenTopoMap base, weather points as circle markers =====
+   Replaces the old canvas/SVG TempWindMap inside the Volo Libero (FlightSection) view.
+   Leaflet is loaded from the CDN in <head> and captured as window.Leaflet (L.noConflict()),
+   because the app already owns window.L for i18n. Data (map = flight.tempmap) is unchanged:
+   { pts:[{name,lat,lon,t,primary}], lat0, lon0, wind, gust, dirDeg }. */
+const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+function _grabLeaflet() {
+  if (window.Leaflet) return window.Leaflet;
+  // head injection should have done this; restore if leaflet.js loaded but noConflict hasn't run
+  if (window.L && window.L.tileLayer && window.L.noConflict) { window.Leaflet = window.L.noConflict(); return window.Leaflet; }
+  return null;
+}
+function TopoMap({ map, height = 260 }) {
+  const wrapRef = React.useRef(null);
+  const mapRef = React.useRef(null);   // Leaflet map instance
+  const layerRef = React.useRef(null); // marker LayerGroup
+  const [ready, setReady] = React.useState(!!_grabLeaflet());
+
+  // ensure Leaflet is present (head-injected; dynamic fallback keeps the component self-sufficient)
+  React.useEffect(function () {
+    if (_grabLeaflet()) { setReady(true); return; }
+    let dead = false;
+    const finish = function () { if (!dead) setReady(!!_grabLeaflet()); };
+    if (!document.querySelector('link[data-leaflet]')) {
+      const lk = document.createElement("link");
+      lk.rel = "stylesheet"; lk.href = LEAFLET_CSS; lk.setAttribute("data-leaflet", "1");
+      document.head.appendChild(lk);
+    }
+    let sc = document.querySelector('script[data-leaflet]');
+    if (!sc) {
+      sc = document.createElement("script");
+      sc.src = LEAFLET_JS; sc.setAttribute("data-leaflet", "1");
+      sc.onload = function () { _grabLeaflet(); finish(); };
+      sc.onerror = finish;
+      document.head.appendChild(sc);
+    } else { sc.addEventListener("load", finish); if (_grabLeaflet()) finish(); }
+    return function () { dead = true; };
+  }, []);
+
+  // init once + re-draw whenever the location (map) changes
+  React.useEffect(function () {
+    const LF = _grabLeaflet();
+    if (!ready || !LF || !wrapRef.current || !map) return;
+    const lat0 = +map.lat0, lon0 = +map.lon0;
+    const haveCenter = isFinite(lat0) && isFinite(lon0);
+
+    if (!mapRef.current) {
+      const m = LF.map(wrapRef.current, { zoomControl: true, attributionControl: true });
+      LF.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+        maxZoom: 13,
+        attribution: "Map data: © OpenStreetMap contributors, SRTM | Style: © OpenTopoMap (CC-BY-SA)",
+      }).addTo(m);
+      layerRef.current = LF.layerGroup().addTo(m);
+      mapRef.current = m;
+      m.setView(haveCenter ? [lat0, lon0] : [45.4677, 7.8772], 10);
+    }
+    const m = mapRef.current, lg = layerRef.current;
+    if (haveCenter) m.setView([lat0, lon0], 10);     // re-center on location change
+
+    lg.clearLayers();
+    const accent = ((getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim()) || "#4f93e0";
+    const windU = (window.U && window.U.wind) || "KM/H";
+    const windStr = (map.wind != null ? Math.round(map.wind) : "—") + " " + windU + " " + _degC8(map.dirDeg);
+    (map.pts || []).forEach(function (p) {
+      const la = +p.lat, lo = +p.lon;
+      if (!isFinite(la) || !isFinite(lo)) return;
+      const rgb = (window.tempColor ? window.tempColor(p.t) : [120, 120, 120]);
+      const fill = "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")";
+      const opts = p.primary
+        ? { radius: 9, color: "#ffffff", weight: 2, fillColor: accent, fillOpacity: 1 }
+        : { radius: 6, color: "rgba(0,0,0,0.55)", weight: 1.5, fillColor: fill, fillOpacity: 0.95 };
+      LF.circleMarker([la, lo], opts)
+        .bindPopup("<b>" + p.name + (p.primary ? " · CURRENT" : "") + "</b><br>" + p.t + "° · " + windStr, { className: "wx-topo-popup" })
+        .addTo(lg);
+    });
+    // panel mounts inside an animated screen — settle Leaflet's size after layout
+    [0, 220, 460].forEach(function (d) { setTimeout(function () { try { m.invalidateSize(); } catch (e) {} }, d); });
+  }, [ready, map]);
+
+  // tear down the Leaflet instance on unmount (frees the container's _leaflet_id)
+  React.useEffect(function () {
+    return function () {
+      if (mapRef.current) { try { mapRef.current.remove(); } catch (e) {} mapRef.current = null; layerRef.current = null; }
+    };
+  }, []);
+
+  return (
+    <Panel pad={0} style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px 8px", borderBottom: "1px solid var(--line)" }}>
+        <Micro>{L.flight.tempMap}</Micro>
+        <span className="mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", color: "var(--fg-faint)" }}>{L.flight.mapNote}</span>
+      </div>
+      <div id="topo-map" ref={wrapRef} style={{ width: "100%", height: height, background: "var(--row-fill)" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 0, padding: "8px 12px", borderTop: "1px solid var(--line)" }}>
+        <span className="mono" style={{ fontSize: 8, letterSpacing: "0.1em", color: "var(--fg-faint)", marginRight: 7 }}>10°</span>
+        <div style={{ display: "flex", flex: 1, height: 6 }}>
+          {[10, 13, 17, 20, 23, 27, 30].map(function (t) { const c = window.tempColor ? window.tempColor(t) : [120, 120, 120]; return <div key={t} style={{ flex: 1, background: "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")" }} />; })}
+        </div>
+        <span className="mono" style={{ fontSize: 8, letterSpacing: "0.1em", color: "var(--fg-faint)", marginLeft: 7 }}>30°C</span>
+      </div>
+    </Panel>
+  );
+}
+
+/* Override the vendored FlightSection (Volo Libero view): identical layout, but the
+   temp/wind map panel is now the Leaflet TopoMap. All sibling panels are the global
+   vendored components (resolved by bare name, same as the original). */
+function FlightSection({ flight }) {
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+        <span style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "9px solid var(--accent)" }} />
+        <Micro style={{ color: "var(--fg)", letterSpacing: "0.2em" }}>{L.flight.title}</Micro>
+        <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+      </div>
+      <FlyStrip flight={flight} />
+      <WindAloft flight={flight} />
+      <Windgram wg={flight.windgram} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <ThermalsPanel flight={flight} />
+        <CeilingPanel flight={flight} />
+      </div>
+      <ShearPanel flight={flight} />
+      <TopoMap map={flight.tempmap} />
+      <SoundingChart sounding={flight.sounding} blTop={flight.blTop} cbH={flight.cbH} />
+      <LocalFlow flight={flight} />
+    </div>
+  );
+}
+
 
