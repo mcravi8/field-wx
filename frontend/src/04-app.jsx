@@ -80,9 +80,14 @@ function App() {
   if (isNight && atmos === "clear-day") atmos = "clear-night";
   const unitsSystem = (liveView && liveView.units && liveView.units.system) || (unitsPref || "metric");
 
+  // [WX_SITES_V2] stamp the active site's name + region/elevation onto the current-conditions
+  // object so the NOW / hourly header reflects the selected location (not the IVREA default)
+  const _elevStr = [activeSite.elevation != null ? Math.round(activeSite.elevation) + " m" : "", activeSite.region ? String(activeSite.region).toUpperCase() : ""].filter(Boolean).join(" · ");
+  const mView = Object.assign({}, m, { trailhead: activeSite.name, elev: _elevStr || wxFmtCoord(activeSite.lat, activeSite.lon) });
+
   let screen;
-  if (nav === "now") screen = <HomeNow m={m} hourly={hourly} onNav={goNav} view={view} flight={flight} onView={setView} />;
-  else if (nav === "hourly") screen = <ScreenHourly m={m} hourly={hourly} />;
+  if (nav === "now") screen = <HomeNow m={mView} hourly={hourly} onNav={goNav} view={view} flight={flight} onView={setView} />;
+  else if (nav === "hourly") screen = <ScreenHourly m={mView} hourly={hourly} />;
   else if (nav === "week") screen = <ScreenWeek />;
   else if (nav === "sites") screen = <ScreenSites sites={sites} activeId={activeSite.id} onSelect={selectSite} onAdd={addSite} onDelete={deleteSite} onReorder={reorderSites} />;
   else screen = <ScreenSys lang={lang} onLang={setLang} theme={theme} onTheme={setTheme} view={view} onView={setView} units={unitsSystem} onUnits={setUnitsPref} />;

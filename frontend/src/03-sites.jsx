@@ -245,14 +245,19 @@ function ScreenSites(props) {
             var dx = swipe[s.id] || 0;
             var dragging = dragId === s.id;
             var canDelete = sites.length > 1;
+            var open = reveal === s.id;
+            // effective translate: follow an active swipe, else slide open on long-press reveal
+            var tx = dx !== 0 ? dx : (open ? -76 : 0);
             return (
               <div key={s.id} style={{ position: "relative", overflow: "hidden", background: "var(--bg)", opacity: (dragId && !dragging) ? 0.55 : 1 }}>
+                {(open || dx < 0) ? (
                 <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end", alignItems: "stretch" }}>
                   <button onClick={function () { doDelete(s.id); }} disabled={!canDelete} className="mono"
                     style={{ width: 84, border: "none", background: canDelete ? "#c2453f" : "var(--line)", color: canDelete ? "#fff" : "var(--fg-faint)", fontSize: 9, letterSpacing: "0.14em", cursor: canDelete ? "pointer" : "default" }}>
                     {canDelete ? T("delete", "DELETE") : T("lastSite", "LAST")}
                   </button>
                 </div>
+                ) : null}
                 <div
                   onClick={function () { tapCard(s.id); }}
                   onPointerDown={function (e) { onPointerDownCard(e, s.id); }}
@@ -261,7 +266,7 @@ function ScreenSites(props) {
                   onTouchMove={function (e) { onTouchMoveCard(e, s.id); }}
                   onTouchEnd={function () { onTouchEndCard(s.id); }}
                   style={{
-                    position: "relative", transform: "translateX(" + dx + "px)",
+                    position: "relative", transform: "translateX(" + tx + "px)",
                     transition: dragging ? "none" : "transform 0.18s ease",
                     background: "var(--panel-fill)", backdropFilter: "blur(3px)",
                     border: "1px solid " + (isActive ? "var(--accent)" : "var(--line)"),
