@@ -1,0 +1,10 @@
+{
+  "name": "field-wx-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "FIELD WX paragliding weather web app — single-file bundle built from src/",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}
