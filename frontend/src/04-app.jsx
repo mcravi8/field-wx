@@ -31,18 +31,43 @@ function App() {
 
   // swipe between tabs — Touch Events. touchend fires reliably on mobile with the
   // final position in changedTouches (even after the browser scrolls a child), which
-  // pointer events did not. A clear, horizontally-dominant drag navigates.
+  // pointer events did not. A clear, horizontally-dominant drag navigates — UNLESS the
+  // gesture began inside something that owns horizontal touch itself (the hourly strip,
+  // the Leaflet map, a segmented toggle/button, etc.), which previously hijacked those
+  // interactions into tab changes.
   const swipe = React.useRef(null);
+  // does the touch's start element sit inside a region that should consume horizontal swipes?
+  const ownsHorizontalGesture = (el) => {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.nodeType !== 1) continue;
+      if (n.hasAttribute && (n.hasAttribute("data-noswipe") || n.hasAttribute("data-leaflet-zoom"))) return true;
+      const tag = n.tagName;
+      if (tag === "BUTTON" || tag === "A" || tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "LABEL") return true;
+      const cls = (typeof n.className === "string") ? n.className : "";
+      if (/leaflet-/.test(cls)) return true;                 // panning/zooming the map
+      // Cede horizontal touch only to an ancestor that ACTUALLY scrolls on the X axis: it must both
+      // declare overflow-x:auto/scroll AND currently overflow. Checking both matters — the page's
+      // vertical scroller (.screen-scroll) computes overflow-x:auto from its class but never overflows
+      // horizontally, so requiring real overflow keeps tab-swipes working on normal content, while the
+      // hourly strip (which does overflow on a phone) still owns its horizontal scroll.
+      try {
+        const ox = window.getComputedStyle(n).overflowX;
+        if ((ox === "auto" || ox === "scroll") && n.scrollWidth > n.clientWidth + 4) return true;
+      } catch (e) {}
+    }
+    return false;
+  };
   const onTouchStart = (e) => {
     const t0 = e.touches && e.touches[0];
-    swipe.current = t0 ? { x: t0.clientX, y: t0.clientY } : null;
+    swipe.current = t0 ? { x: t0.clientX, y: t0.clientY, blocked: ownsHorizontalGesture(e.target) } : null;
   };
   const onTouchEnd = (e) => {
     const s = swipe.current; swipe.current = null;
     const t0 = e.changedTouches && e.changedTouches[0];
-    if (!s || !t0) return;
+    if (!s || !t0 || s.blocked) return;
     const dx = t0.clientX - s.x, dy = t0.clientY - s.y;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) navBy(dx < 0 ? 1 : -1);
+    // require a clearly horizontal, deliberate drag (raised threshold + dominance ratio)
+    if (Math.abs(dx) > 64 && Math.abs(dx) > Math.abs(dy) * 1.6) navBy(dx < 0 ? 1 : -1);
   };
 
   // resolve active language strings before children render
