@@ -66,14 +66,16 @@ svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
 .wx-shell {
   /* defaults = CLEAR · day */
   --txt: #ffffff;
-  --dim: rgba(255,255,255,0.84);
-  --faint: rgba(255,255,255,0.60);
-  --hair: rgba(255,255,255,0.13);
-  --hair-strong: rgba(255,255,255,0.30);
-  --card-a: 0.14;
-  --card-line: rgba(255,255,255,0.24);
-  --bg-deep: #1a5ba6;
-  --app-sky: linear-gradient(180deg,#1a5ba6 0%,#3a82c6 46%,#5e9ed6 100%);
+  --dim: rgba(255,255,255,0.90);
+  --faint: rgba(255,255,255,0.80);   /* was 0.60 — washed out against the light lower sky */
+  --hair: rgba(255,255,255,0.18);
+  --hair-strong: rgba(255,255,255,0.34);
+  --card-a: 0.16;
+  --card-line: rgba(255,255,255,0.26);
+  --bg-deep: #15508f;
+  /* deeper clear-day blue end-to-end so white + accent text keep contrast across the whole screen
+     (the old light #5e9ed6 lower end washed faint/accent text out) */
+  --app-sky: linear-gradient(180deg,#114078 0%,#1c559a 50%,#2769b0 100%);
   --row-fill: rgba(255,255,255,0.08);
   --chrome: rgba(255,255,255,0.07);
   --chrome2: rgba(255,255,255,0.05);
@@ -127,6 +129,19 @@ svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
 /* body overscroll backdrop follows the resolved theme */
 html[data-theme="dark"] { --stage: #141a26; }
 html[data-theme="light"] { --stage: #dce5ef; }
+
+/* Contrast rescue for accent-colored text on the LIGHT skies (clear-day + snow are pale blue,
+   where the mid-blue --accent text — WIND ADVISORY, FULL ▸, GO, trend — washes out). --accent is
+   set inline on <html> so it can't be re-coloured via a class var; instead give accent text a dark
+   halo + weight so it reads, scoped to the pale-sky states only. (light/dark flat themes excluded.) */
+.wx-shell[data-appearance="auto"][data-sky="CLEAR"] .mono[style*="--accent"],
+.wx-shell[data-appearance="auto"][data-sky="CLEAR"] span[style*="var(--accent)"],
+.wx-shell[data-appearance="auto"][data-sky="SNOW"] span[style*="var(--accent)"] {
+  text-shadow: 0 0 1px rgba(12,22,38,0.55), 0 1px 2px rgba(12,22,38,0.45);
+}
+/* the WIND ADVISORY / FULL labels specifically (accent mono text on the pale sky) */
+.wx-shell[data-appearance="auto"][data-sky="CLEAR"] .mono,
+.wx-shell[data-appearance="auto"][data-sky="SNOW"] .mono { text-shadow: 0 1px 2px rgba(12,22,38,0.28); }
 
 /* ===== Glass cards (section 4) ===== */
 .wx-glass {

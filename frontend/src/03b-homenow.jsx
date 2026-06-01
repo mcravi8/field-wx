@@ -41,8 +41,6 @@ function HomeNow({ m, hourly, onNav, view, flight, onView }) {
           </div>
         </div>
 
-        <StatusStrip m={m} />
-
         {view === "sport" && <FlightSection flight={flight} />}
 
         {/* hourly strip */}
