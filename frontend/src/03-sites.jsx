@@ -230,19 +230,19 @@ function ScreenSites(props) {
         </form>
 
         {results != null ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, border: "1px solid var(--line)", padding: 8 }}>
-            {serr ? <span className="mono" style={{ fontSize: 10, color: "var(--fg-dim)", padding: 4 }}>{serr}</span> : null}
-            {(!serr && results.length === 0) ? <span className="mono" style={{ fontSize: 10, color: "var(--fg-dim)", padding: 4 }}>{T("noResults", "No matches")}</span> : null}
+          <div className="wx-box" style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, border: "1px solid var(--line)", padding: 8 }}>
+            {serr ? <span style={{ fontSize: 12, color: "var(--fg-dim)", padding: 4 }}>{serr}</span> : null}
+            {(!serr && results.length === 0) ? <span style={{ fontSize: 12, color: "var(--fg-dim)", padding: 4 }}>{C("No matches", "Nessun risultato")}</span> : null}
             {results.map(function (r, ri) {
               var sub = [r.admin1, r.country].filter(Boolean).join(" · ");
               return (
                 <button key={ri} onClick={function () { addResult(r); }}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--row-fill)", border: "1px solid var(--line)", padding: "8px 10px", cursor: "pointer", textAlign: "left" }}>
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--row-fill)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "left" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, color: "var(--fg)", fontWeight: 600, letterSpacing: "0.03em" }}>{r.name}</span>
-                    <span className="mono" style={{ fontSize: 8.5, color: "var(--fg-faint)", letterSpacing: "0.06em" }}>{sub}{r.elevation != null ? " · " + Math.round(r.elevation) + " m" : ""}</span>
+                    <span style={{ fontSize: 14, color: "var(--fg)", fontWeight: 600, letterSpacing: "0.01em" }}>{r.name}</span>
+                    <span style={{ fontSize: 11, color: "var(--fg-faint)", letterSpacing: "0.01em" }}>{sub}{r.elevation != null ? " · " + Math.round(r.elevation) + " m" : ""}</span>
                   </div>
-                  <span className="mono" style={{ fontSize: 8.5, color: "var(--fg-dim)", flexShrink: 0 }}>{wxFmtCoord(r.latitude, r.longitude)}</span>
+                  <span className="mono" style={{ fontSize: 10, color: "var(--fg-dim)", flexShrink: 0 }}>{wxFmtCoord(r.latitude, r.longitude)}</span>
                 </button>
               );
             })}
@@ -260,16 +260,17 @@ function ScreenSites(props) {
             // effective translate: follow an active swipe, else slide open on long-press reveal
             var tx = dx !== 0 ? dx : (open ? -76 : 0);
             return (
-              <div key={s.id} style={{ position: "relative", overflow: "hidden", background: "var(--bg)", opacity: (dragId && !dragging) ? 0.55 : 1 }}>
+              <div key={s.id} style={{ position: "relative", overflow: "hidden", borderRadius: 18, background: "transparent", opacity: (dragId && !dragging) ? 0.55 : 1 }}>
                 {(open || dx < 0) ? (
-                <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end", alignItems: "stretch" }}>
-                  <button onClick={function () { doDelete(s.id); }} disabled={!canDelete} className="mono"
-                    style={{ width: 84, border: "none", background: canDelete ? "#c2453f" : "var(--line)", color: canDelete ? "#fff" : "var(--fg-faint)", fontSize: 9, letterSpacing: "0.14em", cursor: canDelete ? "pointer" : "default" }}>
-                    {canDelete ? T("delete", "DELETE") : T("lastSite", "LAST")}
+                <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end", alignItems: "stretch", borderRadius: 18, overflow: "hidden" }}>
+                  <button onClick={function () { doDelete(s.id); }} disabled={!canDelete}
+                    style={{ width: 84, border: "none", background: canDelete ? "#c2453f" : "var(--line)", color: canDelete ? "#fff" : "var(--fg-faint)", fontSize: 12, letterSpacing: "0.01em", cursor: canDelete ? "pointer" : "default" }}>
+                    {canDelete ? C("Delete", "Elimina") : C("Last", "Ultimo")}
                   </button>
                 </div>
                 ) : null}
                 <div
+                  className="wx-glass"
                   onClick={function () { tapCard(s.id); }}
                   onPointerDown={function (e) { onPointerDownCard(e, s.id); }}
                   onPointerMove={onPointerMoveCard} onPointerUp={onPointerUpCard} onPointerLeave={onPointerUpCard}
@@ -279,10 +280,9 @@ function ScreenSites(props) {
                   style={{
                     position: "relative", transform: "translateX(" + tx + "px)",
                     transition: dragging ? "none" : "transform 0.18s ease",
-                    background: "var(--panel-fill)", backdropFilter: "blur(3px)",
-                    border: "1px solid " + (isActive ? "var(--accent)" : "var(--line)"),
-                    boxShadow: isActive ? "inset 3px 0 0 var(--accent)" : (dragging ? "0 6px 18px rgba(0,0,0,0.35)" : "none"),
-                    padding: "11px 13px", display: "flex", alignItems: "center", gap: 10,
+                    border: "1px solid " + (isActive ? "var(--accent)" : "var(--card-line)"),
+                    boxShadow: isActive ? "inset 3px 0 0 var(--accent)" : (dragging ? "0 6px 18px rgba(0,0,0,0.35)" : undefined),
+                    padding: "15px 16px", display: "flex", alignItems: "center", gap: 12,
                     cursor: "pointer", userSelect: "none", touchAction: "pan-y"
                   }}>
                   {Handle(s.id)}
