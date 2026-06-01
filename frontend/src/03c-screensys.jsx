@@ -18,9 +18,9 @@ function ScreenSys({ lang, onLang, appearance, onAppearance, view, onView, units
       {opts.map(([lbl, v]) => {
         const on = val === v;
         return (
-          <button key={String(v)} onClick={() => set(v)} className="mono"
+          <button key={String(v)} onClick={() => set(v)} className={on ? "mono wx-seg-on" : "mono"}
             style={{ flex: 1, padding: "11px 0", border: "none", cursor: "pointer", fontSize: 10, letterSpacing: "0.12em", borderRadius: 10,
-              fontWeight: on ? 600 : 400, background: on ? "rgba(255,255,255,0.92)" : "none", color: on ? "#16181d" : "var(--dim)", transition: "background 0.14s, color 0.14s" }}>
+              fontWeight: on ? 600 : 400, background: on ? undefined : "none", color: on ? undefined : "var(--dim)", transition: "background 0.14s, color 0.14s" }}>
             {lbl}
           </button>
         );

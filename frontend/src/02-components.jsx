@@ -160,9 +160,8 @@ function WindgramScreen({ lat, lon, m }) {
 }
 function WxTabBar({ active, onNav }) {
   const tabs = [
-    { id: "now", label: L.tabs.now },
-    { id: "week", label: L.tabs.week },
     { id: "sites", label: L.tabs.sites },
+    { id: "now", label: L.tabs.now },
     { id: "sys", label: L.tabs.sys },
   ];
   return (

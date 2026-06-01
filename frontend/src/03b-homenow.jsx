@@ -64,6 +64,31 @@ function HomeNow({ m, hourly, onNav, view, flight, onView }) {
           ))}
         </div>
 
+        {/* this week — inlined on the NOW screen (Calm layout); normal view only */}
+        {view !== "sport" && Array.isArray(window.WEEK) && window.WEEK.length ? (
+          <React.Fragment>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "18px 0 9px" }}>
+              <Micro>{L.sevenDay}</Micro>
+              <span className="mono" style={{ fontSize: 9, letterSpacing: "0.1em", color: "var(--fg-faint)" }}>{(window.U && window.U.temp) || "°C"}</span>
+            </div>
+            <div className="wx-box" style={{ border: "1px solid var(--line)" }}>
+              {window.WEEK.map((d, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "42px 44px 40px 26px 1fr 28px", gap: 9, alignItems: "center", padding: "12px 12px", borderBottom: i < window.WEEK.length - 1 ? "1px solid var(--line)" : "none", background: i === 0 ? "var(--row-fill)" : "none" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span className="mono" style={{ fontSize: 12, color: i === 0 ? "var(--accent)" : "var(--fg)", letterSpacing: "0.06em" }}>{(L.day && L.day[d.d]) || d.d}</span>
+                    <span className="mono" style={{ fontSize: 8.5, color: "var(--fg-faint)" }}>{d.date}</span>
+                  </div>
+                  <span className="mono" style={{ fontSize: 10, color: "var(--fg-dim)" }}>{d.code}</span>
+                  <span className="mono" style={{ fontSize: 10, color: d.precip >= 50 ? "var(--accent)" : "var(--fg-faint)" }}>{d.precip > 0 ? d.precip + "%" : ""}</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--fg-faint)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{d.lo}°</span>
+                  <RangeBar span={d.span} accent={i === 0} />
+                  <span className="mono" style={{ fontSize: 13, color: "var(--fg)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{d.hi}°</span>
+                </div>
+              ))}
+            </div>
+          </React.Fragment>
+        ) : null}
+
         {/* widget grid */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 16 }}>
           <WindWidget m={m} />

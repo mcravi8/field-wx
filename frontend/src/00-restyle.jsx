@@ -161,6 +161,13 @@ html[data-theme="light"] { --stage: #dce5ef; }
   -webkit-backdrop-filter: blur(18px) saturate(1.25);
   backdrop-filter: blur(18px) saturate(1.25);
 }
+/* segmented-control active pill — theme-adaptive (Calm): white pill in dark, dark pill in light */
+.wx-seg-on { background: rgba(255,255,255,0.92); color: #16181d; }
+.wx-shell[data-appearance="light"] .wx-seg-on,
+.wx-shell[data-appearance="auto"] .wx-seg-on { background: #1b2430; color: #fff; }
+@media (prefers-color-scheme: dark) {
+  .wx-shell[data-appearance="auto"] .wx-seg-on { background: rgba(255,255,255,0.92); color: #16181d; }
+}
 `;
 
 (function () {

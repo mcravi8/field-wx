@@ -1,6 +1,6 @@
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [nav, setNav] = useState(() => { const n = localStorage.getItem("wx-nav") || "now"; return ["now", "week", "sites", "sys", "hourly"].includes(n) ? n : "now"; });
+  const [nav, setNav] = useState(() => { const n = localStorage.getItem("wx-nav") || "now"; return ["now", "sites", "sys", "hourly"].includes(n) ? n : "now"; });
   const [navDir, setNavDir] = useState(null); // "fwd" | "back" | null
   const [lang, setLang] = useState(() => localStorage.getItem("wx-lang") || "en");
   // appearance: Dark · Auto · Light (replaces the old 2-way theme toggle); persisted to fieldwx_appearance, default auto
@@ -10,7 +10,7 @@ function App() {
   const [view, setView] = useState(() => localStorage.getItem("wx-view") || "normal");
   const [unitsPref, setUnitsPref] = useState(() => localStorage.getItem("wx-units") || "");
 
-  const NAV_ORDER = ["now", "week", "sites", "sys"];
+  const NAV_ORDER = ["sites", "now", "sys"];   // Calm 3-tab nav (week is now inline on the Now screen)
   const goNav = (target) => {
     const i = NAV_ORDER.indexOf(nav), j = NAV_ORDER.indexOf(target);
     let dir;
@@ -108,6 +108,7 @@ function App() {
   return (
     <React.Fragment>
       <div className="wx-shell" data-appearance={appearance} style={{ position: "fixed", inset: 0, background: "var(--app-sky)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {appearance !== "auto" && <WxTopoBg appearance={appearance} />}
         <Atmosphere atmos={atmos} accent={t.accent} theme={resolvedTheme} night={isNight && atmos !== "grid"} />
         <TopBar name={activeSite.name} coord={(live.loading && !live.data) ? (wxFmtCoord(activeSite.lat, activeSite.lon) + " · SYNC…") : wxFmtCoord(activeSite.lat, activeSite.lon)} code={m.metar} night={isNight} />
         <div key={nav} className={scrClass} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, position: "relative", zIndex: 1 }}>
