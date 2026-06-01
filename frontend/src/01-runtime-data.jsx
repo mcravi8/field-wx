@@ -412,7 +412,10 @@ const WeatherAPI = (function () {
       return cur < sr || cur >= ss; // local ISO strings compare correctly (same tz)
     } catch (e) { return false; }
   }
-  async function compose(lat, lon, override) {
+  // Build everything EXCEPT the temp-map grid (the slow part). Kicks off the grid fetch in parallel
+  // with the forecast/altitude calls and returns { core, tempmapPromise } so callers can show the
+  // NOW screen immediately and patch the map in when it lands.
+  async function composeCore(lat, lon, override) {
     const u0 = resolveUnits(lat, lon, undefined, override);
     let res = await Promise.all([getJson(forecastUrl(lat, lon, u0), "forecast"), getJson(altitudeUrl(lat, lon, u0), "altitude")]);
     let forecast = res[0], alt = res[1];
@@ -429,13 +432,28 @@ const WeatherAPI = (function () {
     const flight = assessFlight(mCur, mHourly, ctx);
     flight.windgram = transformWindgram(alt, forecast, 24);
     flight.sounding = buildSounding(alt, forecast, (forecast && forecast.elevation) || 0, idx);
-    try { flight.tempmap = await fetchTempmap(lat, lon, idx, current, u); }
-    catch (e) { flight.tempmap = singlePointMap(current, lat, lon); }
-    return { current: current, hourly: hourly, daily: daily, flight: flight, units: u.units, isNight: computeIsNight(forecast) };
+    flight.tempmap = singlePointMap(current, lat, lon);   // instant placeholder; replaced by the grid patch
+    const core = { current: current, hourly: hourly, daily: daily, flight: flight, units: u.units, isNight: computeIsNight(forecast) };
+    const tempmapPromise = fetchTempmap(lat, lon, idx, current, u).catch(function () { return singlePointMap(current, lat, lon); });
+    return { core: core, tempmapPromise: tempmapPromise };
+  }
+  async function compose(lat, lon, override) {
+    const r = await composeCore(lat, lon, override);
+    r.core.flight.tempmap = await r.tempmapPromise;
+    return r.core;
   }
 
   return {
     getFull: function (lat, lon, units) { return compose(lat, lon, units); },
+    // Fast path: emit core conditions immediately via onData(core), then patch in the temp-map grid
+    // via onData({__patch:true, flight:{tempmap}}). Resolves once both have been delivered.
+    getFast: async function (lat, lon, units, onData) {
+      const r = await composeCore(lat, lon, units);
+      onData(r.core);
+      const tm = await r.tempmapPromise;
+      onData({ __patch: true, flight: { tempmap: tm } });
+      return r.core;
+    },
     // refetch-on-pan: fresh current-conditions grid + town labels for the visible map bounds
     gridForBounds: function (south, west, north, east, system) { return gridForBounds(south, west, north, east, system); },
     elevationGrid: function (south, west, north, east, gridN) { return elevationGridForBounds(south, west, north, east, gridN); },
@@ -596,19 +614,34 @@ function useWeatherData(lat, lon, units) {
   const [error, setError] = useState(null);
   useEffect(function () {
     let alive = true;
-    const load = async function () {
+    // location changed → drop the previous site's data immediately so the UI shows a fresh
+    // SYNC state and never lingers on stale conditions from the location we just left.
+    setData(null); setError(null); setLoading(true);
+    const load = async function (isRefresh) {
       try {
-        const resp = await WeatherAPI.getFull(lat, lon, units);
-        if (!alive) return;
-        setData(resp); setError(null); setLoading(false);
+        // getFast resolves as soon as the core forecast is in (temp/wind/hourly/week/flight),
+        // then patches in the slower temp-map grid — so switching location updates the NOW
+        // screen ~1s sooner instead of blocking on the map fetch.
+        await WeatherAPI.getFast(lat, lon, units, function (partial) {
+          if (!alive) return;
+          setData(function (prev) {
+            // merge the later tempmap patch onto the already-shown core data
+            if (partial && partial.__patch && prev) {
+              var f = Object.assign({}, prev.flight, partial.flight || {});
+              return Object.assign({}, prev, { flight: f });
+            }
+            return partial;
+          });
+          setError(null); setLoading(false);
+        });
       } catch (e) {
         if (!alive) return;
         console.warn("[FIELD WX] live weather unavailable, using mock fallback:", e.message);
         setError(e); setLoading(false);
       }
     };
-    setLoading(true); load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    load(false);
+    const id = setInterval(function () { load(true); }, 5 * 60 * 1000);
     return function () { alive = false; clearInterval(id); };
   }, [lat, lon, units]);
   return { data: data, loading: loading, error: error };
