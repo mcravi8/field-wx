@@ -205,40 +205,74 @@ const WeatherAPI = (function () {
     return { levels: LEVELS, hours: hourLabels, current: 0, grid: grid, blByHour: blByHour };
   }
   // ---- real regional temperature map: ONE bulk Open-Meteo call for 12 fixed Canavese towns ----
-  // ---- dynamic regional temp map: GeoNames nearby towns + Open-Meteo bulk temps (works for any site) ----
+  // ---- regional temp/wind map: a REAL geographic grid (terrain-varying temps + winds) + a few major-town labels ----
+  // Every value here is live Open-Meteo data sampled at actual coordinates — temperature varies with elevation
+  // (valleys warm, peaks cold) because Open-Meteo resolves each grid point's terrain. Geometry: ~±25 km box, 6x6 grid.
   const GEONAMES_USERNAME = "mcraviotto"; // free account; enable "free web services" at geonames.org/manageaccount
-  // Up to 12 populated places within 40km of the active site. HTTPS (secure.geonames.org) avoids mixed-content blocking on an HTTPS host.
-  async function fetchNearbyTowns(lat, lon) {
-    const url = "https://secure.geonames.org/findNearbyPlaceNameJSON?lat=" + lat + "&lng=" + lon + "&radius=40&maxRows=12&username=" + encodeURIComponent(GEONAMES_USERNAME);
+  const MAP_HALF_KM = 25;          // half-extent of the map box, km
+  const GRID_N = 6;                // 6x6 = 36 sample points
+  function mapBounds(lat, lon) {
+    const dLat = MAP_HALF_KM / 111.32;
+    const dLon = MAP_HALF_KM / (111.32 * Math.cos(lat * Math.PI / 180));
+    return { south: lat - dLat, north: lat + dLat, west: lon - dLon, east: lon + dLon, dLat: dLat, dLon: dLon };
+  }
+  // A handful of well-spaced, genuinely-populated towns for labels (population gate + spacing dedup avoids the
+  // hamlet/street pile-up). HTTPS host avoids mixed-content blocking. Best-effort: failure just drops the labels.
+  async function fetchMajorTowns(lat, lon) {
+    const url = "https://secure.geonames.org/findNearbyPlaceNameJSON?lat=" + lat + "&lng=" + lon +
+      "&radius=" + Math.round(MAP_HALF_KM) + "&maxRows=60&cities=cities1000&username=" + encodeURIComponent(GEONAMES_USERNAME);
     const j = await getJson(url, "geonames");
     if (j && j.status) throw new Error("GeoNames: " + ((j.status && j.status.message) || "error"));
     const g = (j && j.geonames) || [];
-    return g.map(function (p) { return { name: String(p.name || "").toUpperCase(), lat: +p.lat, lon: +p.lng, dist: +p.distance || 0 }; })
-            .filter(function (p) { return isFinite(p.lat) && isFinite(p.lon); });
-  }
-  // Project geo coords onto the 0..1 map canvas with the active site centered; north = up.
-  function projectTowns(towns, lat0, lon0) {
-    const cosLat = Math.cos(lat0 * Math.PI / 180);
-    const m = towns.map(function (t) { return { name: t.name, dist: t.dist, lat: t.lat, lon: t.lon, dN: (t.lat - lat0) * 111.32, dE: (t.lon - lon0) * 111.32 * cosLat }; });
-    let span = 0; m.forEach(function (p) { span = Math.max(span, Math.abs(p.dN), Math.abs(p.dE)); });
-    span = Math.max(span, 5) * 1.15;
-    const clamp = function (v) { return Math.max(0.06, Math.min(0.94, v)); };
-    return m.map(function (p) { return { name: p.name, lat: p.lat, lon: p.lon, dist: p.dist, x: clamp(0.5 + p.dE / (2 * span)), y: clamp(0.5 - p.dN / (2 * span)) }; });
+    const cand = g.map(function (p) { return { name: String(p.name || "").toUpperCase(), lat: +p.lat, lon: +p.lng, pop: +p.population || 0, dist: +p.distance || 0 }; })
+                  .filter(function (p) { return isFinite(p.lat) && isFinite(p.lon) && p.pop >= 2000; })
+                  .sort(function (a, b) { return b.pop - a.pop; });
+    // spacing dedup: keep a town only if it's >~4km from every town already kept; cap at 8 labels
+    const kept = [], MIN_KM = 4, cosLat = Math.cos(lat * Math.PI / 180);
+    for (const p of cand) {
+      const clash = kept.some(function (q) {
+        const dN = (p.lat - q.lat) * 111.32, dE = (p.lon - q.lon) * 111.32 * cosLat;
+        return Math.sqrt(dN * dN + dE * dE) < MIN_KM;
+      });
+      if (!clash) kept.push(p);
+      if (kept.length >= 8) break;
+    }
+    return kept;
   }
   function singlePointMap(current, lat, lon) {
-    return { pts: [{ name: "LOCAL", x: 0.5, y: 0.5, lat: +lat, lon: +lon, primary: true, t: Math.round(current.temp) }], lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
+    const b = mapBounds(+lat, +lon);
+    return { grid: [{ lat: +lat, lon: +lon, t: Math.round(current.temp), wind: current.wind, dirDeg: current.windDirDeg, elev: null }],
+      pts: [{ name: "LOCAL", lat: +lat, lon: +lon, primary: true, t: Math.round(current.temp) }],
+      bounds: b, lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
   }
+  // Pull the grid's temps/winds at the active site's local-hour index (towns share its tz within this small box).
   async function fetchTempmap(lat, lon, idx, current, u) {
-    let towns; try { towns = await fetchNearbyTowns(lat, lon); } catch (e) { towns = []; }
-    if (!towns.length) return singlePointMap(current, lat, lon); // e.g. open water, or GeoNames account not yet enabled
-    const placed = projectTowns(towns, lat, lon);
-    const lats = placed.map(function (t) { return t.lat; }).join(","), lons = placed.map(function (t) { return t.lon; }).join(",");
-    const j = await getJson(OM + "?latitude=" + lats + "&longitude=" + lons + "&hourly=temperature_2m&temperature_unit=" + u.temperature_unit + "&timezone=auto&forecast_days=1", "tempmap");
-    const arr = Array.isArray(j) ? j : [j];
-    // towns share the active site's timezone (<=40km) so the primary's local-hour index applies to all (NOT raw UTC[0])
-    let nearest = 0; placed.forEach(function (p, k) { if (p.dist < placed[nearest].dist) nearest = k; });
-    const pts = placed.map(function (t, i) { const hh = arr[i] && arr[i].hourly, tp = hh && hh.temperature_2m; const v = (tp && tp[idx] != null) ? tp[idx] : ((tp && tp.length) ? tp[0] : current.temp); return { name: t.name, x: t.x, y: t.y, lat: t.lat, lon: t.lon, primary: i === nearest, t: Math.round(v) }; });
-    return { pts: pts, lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
+    const b = mapBounds(+lat, +lon);
+    const lats = [], lons = [];
+    for (let r = 0; r < GRID_N; r++) for (let c = 0; c < GRID_N; c++) {
+      lats.push((b.south + (b.north - b.south) * r / (GRID_N - 1)).toFixed(4));
+      lons.push((b.west + (b.east - b.west) * c / (GRID_N - 1)).toFixed(4));
+    }
+    const gridUrl = OM + "?latitude=" + lats.join(",") + "&longitude=" + lons.join(",") +
+      "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m&temperature_unit=" + u.temperature_unit +
+      "&wind_speed_unit=" + u.wind_speed_unit + "&timezone=auto&forecast_days=1";
+    const [gj, towns] = await Promise.all([
+      getJson(gridUrl, "tempmap"),
+      fetchMajorTowns(lat, lon).catch(function () { return []; }),
+    ]);
+    const arr = Array.isArray(gj) ? gj : [gj];
+    const grid = arr.map(function (p, i) {
+      const hh = p && p.hourly, tp = hh && hh.temperature_2m, ws = hh && hh.wind_speed_10m, wdir = hh && hh.wind_direction_10m;
+      const pick1 = function (a, d) { return (a && a[idx] != null) ? a[idx] : ((a && a.length) ? a[0] : d); };
+      return { lat: +lats[i], lon: +lons[i], elev: (p && p.elevation != null) ? Math.round(p.elevation) : null,
+        t: Math.round(pick1(tp, current.temp)), wind: Math.round(pick1(ws, current.wind)), dirDeg: Math.round(pick1(wdir, current.windDirDeg)) };
+    }).filter(function (g) { return isFinite(g.lat) && isFinite(g.lon) && isFinite(g.t); });
+    if (!grid.length) return singlePointMap(current, lat, lon);
+    // label points: matched to nearest grid temp; the active site is the primary marker
+    const nearestT = function (la, lo) { let best = grid[0], bd = 1e9; grid.forEach(function (g) { const d = (g.lat - la) * (g.lat - la) + (g.lon - lo) * (g.lon - lo); if (d < bd) { bd = d; best = g; } }); return best.t; };
+    const pts = towns.map(function (t) { return { name: t.name, lat: t.lat, lon: t.lon, primary: false, t: nearestT(t.lat, t.lon) }; });
+    pts.unshift({ name: "CURRENT", lat: +lat, lon: +lon, primary: true, t: Math.round(current.temp) });
+    return { grid: grid, pts: pts, bounds: b, lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
   }
   // ---- derived cloud base (LCL): Open-Meteo cloud_base is null, so compute the lifting condensation level ----
   function cloudBaseM(current, elevation) {
