@@ -7,26 +7,92 @@
    Micro / Switch / L globals; shadows the vendored window.ScreenSys at runtime
    (same override mechanism as TopBar / HomeNow / ScreenSites).
    ============================================================================ */
-function ScreenSys({ lang, onLang, appearance, onAppearance, view, onView, units, onUnits }) {
-  const [toggles, setToggles] = useState({ severe: true, precip: true, daily: false, theme: true });
-  const flip = (k) => setToggles((t) => Object.assign({}, t, { [k]: !t[k] }));
-  const rows = [["severe", L.notif.severe], ["precip", L.notif.precip], ["daily", L.notif.daily], ["theme", L.notif.theme]];
+/* Segmented control with a smoothly-sliding active pill + swipe/drag selection.
+   Tap an option to pick it; or drag horizontally across the track — the pill follows the
+   finger and snaps to the nearest option on release. The pill is one absolutely-positioned
+   element that animates between slots (CSS transform transition) so switching glides. */
+function Seg({ opts, val, set }) {
+  const trackRef = React.useRef(null);
+  const idx = Math.max(0, opts.findIndex(function (o) { return o[1] === val; }));
+  const n = opts.length;
+  const PAD = 4;                                  // track padding (matches the original)
+  const dragState = React.useRef(null);
+  const dS = useState(null); const drag = dS[0], setDrag = dS[1];   // {frac} while dragging, else null
 
-  // restyled segmented control (section 6): rounded glass track, white active pill
-  const seg = (opts, val, set) => (
-    <div style={{ display: "flex", gap: 4, padding: 4, borderRadius: 14, background: "rgba(255,255,255,0.07)", border: "1px solid var(--hair)" }}>
-      {opts.map(([lbl, v]) => {
-        const on = val === v;
+  // slot width fraction (0..1) within the inner track; pill sits at slot i
+  const slotFrac = function (i) { return n > 1 ? i / n : 0; };
+
+  // pixel → which option slot a clientX lands on
+  const slotAt = function (clientX) {
+    const el = trackRef.current; if (!el) return idx;
+    const r = el.getBoundingClientRect();
+    const inner = r.width - PAD * 2;
+    const x = Math.max(0, Math.min(inner, clientX - r.left - PAD));
+    return Math.max(0, Math.min(n - 1, Math.floor(x / (inner / n))));
+  };
+  // pixel → continuous fraction (0..1) of the pill's LEFT, for finger-following
+  const fracAt = function (clientX) {
+    const el = trackRef.current; if (!el) return slotFrac(idx);
+    const r = el.getBoundingClientRect();
+    const inner = r.width - PAD * 2;
+    const x = clientX - r.left - PAD - (inner / n) / 2;   // center the pill under the finger
+    return Math.max(0, Math.min(1 - 1 / n, x / inner));
+  };
+
+  const onDown = function (e) {
+    const t = (e.touches && e.touches[0]) || e;
+    dragState.current = { startX: t.clientX, moved: false, id: e.pointerId };
+    try { if (e.pointerId != null && e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+  };
+  const onMove = function (e) {
+    const ds = dragState.current; if (!ds) return;
+    const t = (e.touches && e.touches[0]) || e;
+    if (Math.abs(t.clientX - ds.startX) > 4) ds.moved = true;
+    if (ds.moved) {
+      if (e.cancelable) e.preventDefault();        // we own this horizontal gesture
+      setDrag({ frac: fracAt(t.clientX) });
+      const s = slotAt(t.clientX);
+      if (opts[s] && opts[s][1] !== val) set(opts[s][1]);   // live update as you drag past a slot
+    }
+  };
+  const onUp = function (e) {
+    const ds = dragState.current; dragState.current = null;
+    setDrag(null);
+    if (!ds) return;
+    const t = (e.changedTouches && e.changedTouches[0]) || e;
+    if (ds.moved) { const s = slotAt(t.clientX); if (opts[s]) set(opts[s][1]); }
+  };
+
+  const pillFrac = drag ? drag.frac : slotFrac(idx);
+  return (
+    <div ref={trackRef}
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+      style={{ position: "relative", display: "flex", gap: 0, padding: PAD, borderRadius: 14, background: "rgba(255,255,255,0.07)", border: "1px solid var(--hair)", touchAction: "pan-y", userSelect: "none", cursor: "pointer" }}>
+      {/* sliding active pill */}
+      <div className="wx-seg-pill" aria-hidden="true"
+        style={{ position: "absolute", top: PAD, bottom: PAD, left: PAD, width: "calc((100% - " + (PAD * 2) + "px) / " + n + ")",
+          transform: "translateX(" + (pillFrac * (n) * 100) + "%)",
+          borderRadius: 10, transition: drag ? "none" : "transform 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: "none", zIndex: 0 }} />
+      {opts.map(function (o, i) {
+        const lbl = o[0], v = o[1], on = i === idx;
         return (
-          <button key={String(v)} onClick={() => set(v)} className={on ? "mono wx-seg-on" : "mono"}
-            style={{ flex: 1, padding: "11px 0", border: "none", cursor: "pointer", fontSize: 10, letterSpacing: "0.12em", borderRadius: 10,
-              fontWeight: on ? 600 : 400, background: on ? undefined : "none", color: on ? undefined : "var(--dim)", transition: "background 0.14s, color 0.14s" }}>
+          <button key={String(v)} type="button" onClick={function () { if (!drag) set(v); }} className="mono"
+            style={{ flex: 1, padding: "11px 0", border: "none", background: "none", cursor: "pointer", fontSize: 10, letterSpacing: "0.12em",
+              position: "relative", zIndex: 1, fontWeight: on ? 600 : 400, color: on ? "var(--seg-on-fg)" : "var(--dim)", transition: "color 0.2s" }}>
             {lbl}
           </button>
         );
       })}
     </div>
   );
+}
+
+function ScreenSys({ lang, onLang, appearance, onAppearance, view, onView, units, onUnits }) {
+  const [toggles, setToggles] = useState({ severe: true, precip: true, daily: false, theme: true });
+  const flip = (k) => setToggles((t) => Object.assign({}, t, { [k]: !t[k] }));
+  const rows = [["severe", L.notif.severe], ["precip", L.notif.precip], ["daily", L.notif.daily], ["theme", L.notif.theme]];
+
+  const seg = (opts, val, set) => <Seg opts={opts} val={val} set={set} />;
 
   return (
     <div className="screen-scroll" style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2 }}>

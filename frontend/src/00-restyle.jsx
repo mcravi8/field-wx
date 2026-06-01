@@ -165,6 +165,11 @@ html[data-theme="light"] { --stage: #dce5ef; }
 /* segmented-control active pill — theme-adaptive (Calm): white pill in dark, dark pill in light */
 .wx-seg-on { background: rgba(255,255,255,0.92); color: #16181d; }
 .wx-shell[data-appearance="light"] .wx-seg-on { background: #1b2430; color: #fff; }
+/* sliding pill variant: one moving element behind the labels (the active option's text uses --seg-on-fg) */
+.wx-shell { --seg-on-fg: #16181d; }
+.wx-shell[data-appearance="light"] { --seg-on-fg: #fff; }
+.wx-seg-pill { background: rgba(255,255,255,0.92); box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
+.wx-shell[data-appearance="light"] .wx-seg-pill { background: #1b2430; }
 `;
 
 (function () {
