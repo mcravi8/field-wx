@@ -57,10 +57,14 @@ body { font-family: 'Hanken Grotesk', system-ui, -apple-system, sans-serif !impo
 button { font-family: inherit; }
 svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
 
-/* ===== Appearance token sets (section 2 base, dark, light, auto) =====
-   These remap the existing app variables (--fg/--line/--panel-fill/--chrome/--bg...)
-   onto the new Calm palette so the whole app (vendored + src) re-skins from one place. */
+/* ===== Appearance token sets =====
+   AUTO = the LIVE sky: the gradient + card tokens follow the active weather condition and
+   day/night via [data-sky] on the shell (like Apple Weather). LIGHT/DARK OVERRIDE the sky
+   with a flat palette (the weather atmosphere still plays, but no day/night sun/stars).
+   These remap the existing app vars (--fg/--line/--panel-fill/--chrome/--bg...) so the whole
+   app re-skins from one place. Per-condition skies ported from the Calm standalone. */
 .wx-shell {
+  /* defaults = CLEAR · day */
   --txt: #ffffff;
   --dim: rgba(255,255,255,0.84);
   --faint: rgba(255,255,255,0.60);
@@ -69,7 +73,7 @@ svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
   --card-a: 0.14;
   --card-line: rgba(255,255,255,0.24);
   --bg-deep: #1a5ba6;
-  --app-sky: linear-gradient(180deg,#2c79c4 0%,#1a5ba6 58%,#11406f 100%);
+  --app-sky: linear-gradient(180deg,#1a5ba6 0%,#3a82c6 46%,#5e9ed6 100%);
   --row-fill: rgba(255,255,255,0.08);
   --chrome: rgba(255,255,255,0.07);
   --chrome2: rgba(255,255,255,0.05);
@@ -83,9 +87,14 @@ svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
   --stage: var(--bg-deep);
   --frame: var(--bg-deep);
 }
-/* light tokens — explicit light, and auto when system is not dark */
-.wx-shell[data-appearance="light"],
-.wx-shell[data-appearance="auto"] {
+/* AUTO only — live per-condition sky + card tokens (CLEAR uses the defaults above) */
+.wx-shell[data-appearance="auto"][data-sky="OVERCAST"] { --bg-deep:#4f5e6d; --card-a:0.15; --card-line:rgba(255,255,255,0.22); --app-sky: linear-gradient(180deg,#4f5e6d 0%,#69778a 52%,#7d8a98 100%); }
+.wx-shell[data-appearance="auto"][data-sky="RAIN"]     { --bg-deep:#212c38; --card-a:0.09; --card-line:rgba(255,255,255,0.16); --hair-strong:rgba(255,255,255,0.26); --app-sky: linear-gradient(180deg,#212c38 0%,#37485a 55%,#475a6c 100%); }
+.wx-shell[data-appearance="auto"][data-sky="SNOW"]     { --bg-deep:#586878; --card-a:0.13; --card-line:rgba(255,255,255,0.22); --app-sky: linear-gradient(180deg,#586878 0%,#76859a 52%,#94a1ae 100%); }
+.wx-shell[data-appearance="auto"][data-sky="STORM"]    { --bg-deep:#171c28; --card-a:0.08; --card-line:rgba(255,255,255,0.15); --hair-strong:rgba(255,255,255,0.24); --app-sky: linear-gradient(180deg,#171c28 0%,#283242 55%,#374454 100%); }
+.wx-shell[data-appearance="auto"][data-sky="NIGHT"]    { --bg-deep:#0a142c; --card-a:0.07; --card-line:rgba(255,255,255,0.14); --hair-strong:rgba(255,255,255,0.24); --app-sky: linear-gradient(180deg,#0a142c 0%,#122146 55%,#1a2c54 100%); }
+/* LIGHT — flat palette, overrides the live sky */
+.wx-shell[data-appearance="light"] {
   --txt: #1b2430;
   --dim: rgba(27,36,48,0.72);
   --faint: rgba(27,36,48,0.46);
@@ -100,7 +109,7 @@ svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
   --chrome2: rgba(255,255,255,0.40);
   text-shadow: none;
 }
-/* dark tokens — explicit dark */
+/* DARK — flat palette, overrides the live sky */
 .wx-shell[data-appearance="dark"] {
   --txt: #eef2f7;
   --dim: rgba(238,242,247,0.74);
@@ -114,23 +123,6 @@ svg text { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
   --row-fill: rgba(255,255,255,0.06);
   --chrome: rgba(255,255,255,0.05);
   --chrome2: rgba(255,255,255,0.03);
-}
-/* dark tokens — auto when system prefers dark */
-@media (prefers-color-scheme: dark) {
-  .wx-shell[data-appearance="auto"] {
-    --txt: #eef2f7;
-    --dim: rgba(238,242,247,0.74);
-    --faint: rgba(238,242,247,0.47);
-    --hair: rgba(255,255,255,0.09);
-    --hair-strong: rgba(255,255,255,0.20);
-    --card-a: 0.05;
-    --card-line: rgba(255,255,255,0.11);
-    --bg-deep: #141a26;
-    --app-sky: linear-gradient(180deg,#0b0e15 0%,#141a26 55%,#1d2637 100%);
-    --row-fill: rgba(255,255,255,0.06);
-    --chrome: rgba(255,255,255,0.05);
-    --chrome2: rgba(255,255,255,0.03);
-  }
 }
 /* body overscroll backdrop follows the resolved theme */
 html[data-theme="dark"] { --stage: #141a26; }
@@ -146,14 +138,8 @@ html[data-theme="light"] { --stage: #dce5ef; }
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
 }
 /* light mode: glass cards also get a soft drop shadow */
-.wx-shell[data-appearance="light"] .wx-glass,
-.wx-shell[data-appearance="auto"] .wx-glass {
+.wx-shell[data-appearance="light"] .wx-glass {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 4px 16px rgba(27,36,48,0.08);
-}
-@media (prefers-color-scheme: dark) {
-  .wx-shell[data-appearance="auto"] .wx-glass {
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
-  }
 }
 /* hourly strip / list boxes share the frosted look (bg comes from --panel-fill remap) */
 .wx-box {
@@ -163,11 +149,7 @@ html[data-theme="light"] { --stage: #dce5ef; }
 }
 /* segmented-control active pill — theme-adaptive (Calm): white pill in dark, dark pill in light */
 .wx-seg-on { background: rgba(255,255,255,0.92); color: #16181d; }
-.wx-shell[data-appearance="light"] .wx-seg-on,
-.wx-shell[data-appearance="auto"] .wx-seg-on { background: #1b2430; color: #fff; }
-@media (prefers-color-scheme: dark) {
-  .wx-shell[data-appearance="auto"] .wx-seg-on { background: rgba(255,255,255,0.92); color: #16181d; }
-}
+.wx-shell[data-appearance="light"] .wx-seg-on { background: #1b2430; color: #fff; }
 `;
 
 (function () {

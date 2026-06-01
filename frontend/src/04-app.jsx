@@ -5,8 +5,9 @@ function App() {
   const [lang, setLang] = useState(() => localStorage.getItem("wx-lang") || "en");
   // appearance: Dark · Auto · Light (replaces the old 2-way theme toggle); persisted to fieldwx_appearance, default auto
   const [appearance, setAppearance] = useState(() => { const a = localStorage.getItem("fieldwx_appearance"); return (a === "dark" || a === "light" || a === "auto") ? a : "auto"; });
-  const [sysDark, setSysDark] = useState(() => { try { return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches); } catch (e) { return true; } });
-  const resolvedTheme = appearance === "auto" ? (sysDark ? "dark" : "light") : appearance;
+  // Light/Dark force a flat palette; Auto shows the live per-condition sky. resolvedTheme drives the
+  // Atmosphere particle/grid colours + html data-theme (Auto = dark-content: light particles on the sky).
+  const resolvedTheme = appearance === "light" ? "light" : "dark";
   const [view, setView] = useState(() => localStorage.getItem("wx-view") || "normal");
   const [unitsPref, setUnitsPref] = useState(() => localStorage.getItem("wx-units") || "");
 
@@ -50,15 +51,6 @@ function App() {
   useEffect(() => { document.documentElement.style.setProperty("--accent", t.accent); }, [t.accent]);
   useEffect(() => { localStorage.setItem("wx-nav", nav); }, [nav]);
   useEffect(() => { localStorage.setItem("wx-lang", lang); }, [lang]);
-  // appearance=auto follows the OS; re-apply on system change
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (e) => setSysDark(e.matches);
-    if (mq.addEventListener) mq.addEventListener("change", onChange);
-    else if (mq.addListener) mq.addListener(onChange);
-    return () => { if (mq.removeEventListener) mq.removeEventListener("change", onChange); else if (mq.removeListener) mq.removeListener(onChange); };
-  }, []);
   useEffect(() => { try { localStorage.setItem("fieldwx_appearance", appearance); } catch (e) {} }, [appearance]);
   // feed the resolved (dark|light) mode to the existing theme machinery: vendored light CSS, body backdrop, Atmosphere
   useEffect(() => { document.documentElement.setAttribute("data-theme", resolvedTheme); }, [resolvedTheme]);
@@ -87,8 +79,19 @@ function App() {
   const hourly = simMode ? genHourly(moodKey, 24) : liveView.hourly;
   const flight = simMode ? genFlight(moodKey) : liveView.flight;
   const isNight = !!(liveView && liveView.isNight);
+  // Auto = live day/night sky (sun by day, stars at night). Light/Dark keep the WEATHER atmosphere
+  // (rain/snow/cloud/storm) but drop the day/night cue (no sun/stars), per the Calm model.
   let atmos = t.atmosphere ? m.atmos : "grid";
-  if (isNight && atmos === "clear-day") atmos = "clear-night";
+  if (appearance === "auto") {
+    if (isNight && atmos === "clear-day") atmos = "clear-night";
+  } else if (atmos === "clear-day" || atmos === "clear-night") {
+    atmos = "grid";
+  }
+  const atmNight = appearance === "auto" ? (isNight && atmos !== "grid") : false;
+  // live sky key for AUTO's per-condition gradient (NIGHT for a clear night; BLIZZARD shares SNOW)
+  const condKey = simMode ? moodKey : ((liveView && liveView.m && liveView.m.key) || "CLEAR");
+  let skyKey = (condKey === "BLIZZARD") ? "SNOW" : condKey;
+  if (isNight && skyKey === "CLEAR") skyKey = "NIGHT";
   const unitsSystem = (liveView && liveView.units && liveView.units.system) || (unitsPref || "metric");
 
   // [WX_SITES_V2] stamp the active site's name + region/elevation onto the current-conditions
@@ -107,9 +110,9 @@ function App() {
 
   return (
     <React.Fragment>
-      <div className="wx-shell" data-appearance={appearance} style={{ position: "fixed", inset: 0, background: "var(--app-sky)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className="wx-shell" data-appearance={appearance} data-sky={skyKey} style={{ position: "fixed", inset: 0, background: "var(--app-sky)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {appearance !== "auto" && <WxTopoBg appearance={appearance} />}
-        <Atmosphere atmos={atmos} accent={t.accent} theme={resolvedTheme} night={isNight && atmos !== "grid"} />
+        <Atmosphere atmos={atmos} accent={t.accent} theme={resolvedTheme} night={atmNight} />
         <TopBar name={activeSite.name} coord={(live.loading && !live.data) ? (wxFmtCoord(activeSite.lat, activeSite.lon) + " · SYNC…") : wxFmtCoord(activeSite.lat, activeSite.lon)} code={m.metar} night={isNight} />
         <div key={nav} className={scrClass} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, position: "relative", zIndex: 1 }}>
           {screen}
