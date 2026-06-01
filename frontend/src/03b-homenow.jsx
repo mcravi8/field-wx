@@ -41,9 +41,11 @@ function HomeNow({ m, hourly, onNav, view, flight, onView }) {
           </div>
         </div>
 
-        {view === "sport" && <FlightSection flight={flight} />}
+        {view === "sport" && <FlightSection flight={flight} hourly={hourly} onNav={onNav} />}
 
-        {/* hourly strip */}
+        {/* hourly strip — normal view only (sport/Volo Libero shows it at the top of FlightSection) */}
+        {view !== "sport" ? (
+        <React.Fragment>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 9px" }}>
           <Micro>{L.next12}</Micro>
           <button onClick={() => onNav("hourly")} className="mono" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9.5, letterSpacing: "0.14em", color: "var(--accent)" }}>{L.full} ▸</button>
@@ -61,6 +63,8 @@ function HomeNow({ m, hourly, onNav, view, flight, onView }) {
             </div>
           ))}
         </div>
+        </React.Fragment>
+        ) : null}
 
         {/* this week — inlined on the NOW screen (Calm layout); normal view only */}
         {view !== "sport" && Array.isArray(window.WEEK) && window.WEEK.length ? (

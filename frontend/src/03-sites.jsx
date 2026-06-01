@@ -7,6 +7,11 @@ function wxFmtCoord(lat, lon) {
   var a = Math.abs(Number(lat)).toFixed(4), b = Math.abs(Number(lon)).toFixed(4);
   return a + "°" + (Number(lat) >= 0 ? "N" : "S") + " " + b + "°" + (Number(lon) >= 0 ? "E" : "W");
 }
+// Site names are stored UPPER-CASE; render them Title Case for the Calm UI ("IVREA"→"Ivrea",
+// "MT HOOD"→"Mt Hood"). Hyphens/apostrophes handled so "CHAMONIX-MONT-BLANC" reads naturally.
+function wxTitleCase(s) {
+  return String(s || "").toLowerCase().replace(/(^|[\s\-'·/])([a-z])/g, function (m, sep, ch) { return sep + ch.toUpperCase(); });
+}
 var WX_DEFAULT_SITE = { id: "ivrea", name: "IVREA", lat: 45.4677, lon: 7.8772, elevation: 253, region: "Canavese · IT" };
 function wxLoadSites() {
   try {
@@ -47,6 +52,9 @@ function ScreenSites(props) {
   var onSelect = props.onSelect, onAdd = props.onAdd, onDelete = props.onDelete, onReorder = props.onReorder;
   var LS = (window.L) || {};
   var T = function (k, d) { return (typeof LS[k] === "string") ? LS[k] : d; };
+  // Calm-mockup labels bypass the all-caps i18n (which has tracked:"TRACKED" etc.) and pick EN/IT directly.
+  var _it = (window.__wxLang === "it") || (LS && LS.tabs && LS.tabs.now === "ORA");
+  var C = function (en, it) { return _it ? it : en; };
 
   var qS = useState(""); var q = qS[0], setQ = qS[1];
   var rS = useState(null); var results = rS[0], setResults = rS[1];     // null=idle, []=none, [..]=hits
@@ -203,19 +211,22 @@ function ScreenSites(props) {
   return (
     <div className="screen-scroll" style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2 }}>
       <div style={{ padding: "16px 16px 28px" }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
-          <span style={{ fontSize: 15, letterSpacing: "0.04em", color: "var(--fg)", fontWeight: 600 }}>{T("sites", "SITES")}</span>
-          <span className="mono" style={{ fontSize: 9, letterSpacing: "0.1em", color: "var(--fg-faint)" }}>{sites.length} {T("tracked", "TRACKED")}</span>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
+          <span style={{ fontSize: 22, letterSpacing: "0.01em", color: "var(--fg)", fontWeight: 600 }}>{C("Sites", "Siti")}</span>
+          <span style={{ fontSize: 12, letterSpacing: "0.01em", color: "var(--fg-faint)" }}>{sites.length} {C("tracked", "monitorati")}</span>
         </div>
 
-        <form onSubmit={runSearch} style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line-strong)", padding: "9px 10px", marginBottom: 8 }}>
-          <span style={{ width: 9, height: 9, border: "1px solid var(--fg-faint)", flexShrink: 0 }} />
+        <form onSubmit={runSearch} style={{ display: "flex", alignItems: "center", gap: 9, borderRadius: 14, background: "rgba(255,255,255,0.07)", border: "1px solid var(--hair)", padding: "11px 13px", marginBottom: 10 }}>
+          {/* magnifying-glass icon */}
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--fg-faint)" strokeWidth="1.6" style={{ flexShrink: 0 }}>
+            <circle cx="7" cy="7" r="4.5" /><line x1="10.5" y1="10.5" x2="14" y2="14" strokeLinecap="round" />
+          </svg>
           <input value={q} onChange={function (e) { setQ(e.target.value); }}
-            placeholder={T("searchSite", "SEARCH CITY OR PLACE…")} className="mono"
-            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--fg)", fontSize: 11, letterSpacing: "0.06em" }} />
+            placeholder={C("Search for a place…", "Cerca un luogo…")}
+            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--fg)", fontSize: 14, letterSpacing: "0.01em" }} />
           {busy
-            ? <span className="mono" style={{ fontSize: 9, color: "var(--fg-faint)", letterSpacing: "0.1em" }}>{"…"}</span>
-            : <button type="submit" className="mono" style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 9, letterSpacing: "0.14em", cursor: "pointer", padding: 0 }}>{T("go", "GO")}</button>}
+            ? <span style={{ fontSize: 12, color: "var(--fg-faint)" }}>{"…"}</span>
+            : (q ? <button type="submit" style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>{T("go", "Go")}</button> : null)}
         </form>
 
         {results != null ? (
@@ -276,28 +287,31 @@ function ScreenSites(props) {
                   }}>
                   {Handle(s.id)}
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                      {isActive ? <span style={{ width: 6, height: 6, background: "var(--accent)", flexShrink: 0 }} /> : null}
-                      <span style={{ fontSize: 13, letterSpacing: "0.04em", color: "var(--fg)", fontWeight: 600 }}>{s.name}</span>
-                      {isDefault ? Tag(T("defaultTag", "DEFAULT"), "default") : null}
-                      {isActive ? Tag(T("viewingTag", "VIEWING"), "active") : null}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      {isActive ? <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ec77f", boxShadow: "0 0 6px rgba(78,199,127,0.6)", flexShrink: 0 }} /> : null}
+                      <span style={{ fontSize: 17, letterSpacing: "0.01em", color: "var(--fg)", fontWeight: 600 }}>{wxTitleCase(s.name)}</span>
                     </div>
-                    <span className="mono" style={{ fontSize: 9, letterSpacing: "0.08em", color: "var(--fg-faint)" }}>{wxFmtCoord(s.lat, s.lon)}</span>
                     {(s.region || s.elevation != null) ? (
-                      <span className="mono" style={{ fontSize: 9, letterSpacing: "0.08em", color: "var(--fg-faint)" }}>
+                      <span style={{ fontSize: 12, letterSpacing: "0.01em", color: "var(--fg-dim)" }}>
                         {s.region || ""}{(s.region && s.elevation != null) ? " · " : ""}{s.elevation != null ? Math.round(s.elevation) + " m" : ""}
                       </span>
                     ) : null}
+                    <span className="mono" style={{ fontSize: 11, letterSpacing: "0.04em", color: "var(--fg-faint)" }}>{wxFmtCoord(s.lat, s.lon)}</span>
                   </div>
-                  <span className="mono" style={{ fontSize: 13, color: "var(--fg-dim)", flexShrink: 0, opacity: 0.5 }}>{"›"}</span>
+                  <span className="mono" style={{ fontSize: 15, color: "var(--fg-dim)", flexShrink: 0, opacity: 0.5 }}>{"›"}</span>
                 </div>
               </div>
             );
           })}
         </div>
 
-        <div className="mono" style={{ marginTop: 12, fontSize: 8.5, letterSpacing: "0.1em", color: "var(--fg-faint)", lineHeight: 1.7 }}>
-          {T("sitesHint", "SWIPE LEFT OR LONG-PRESS TO DELETE · DRAG ☰ TO REORDER · TAP TO VIEW")}
+        {/* + Add a site — focuses the search field at the top */}
+        <button type="button" onClick={function () { try { var el = document.querySelector('input[placeholder]'); if (el) el.focus(); window.scrollTo && window.scrollTo(0, 0); } catch (e) {} }}
+          style={{ width: "100%", marginTop: 12, padding: "15px 0", borderRadius: 14, border: "1px dashed var(--line-strong)", background: "none", color: "var(--fg-dim)", fontSize: 14, letterSpacing: "0.01em", cursor: "pointer" }}>
+          {C("+ Add a site", "+ Aggiungi sito")}
+        </button>
+        <div style={{ marginTop: 12, fontSize: 11, letterSpacing: "0.01em", color: "var(--fg-faint)", lineHeight: 1.7, textAlign: "center" }}>
+          {C("Swipe or long-press to delete · drag to reorder · tap to view", "Scorri o tieni premuto per eliminare · trascina per riordinare · tocca per vedere")}
         </div>
       </div>
     </div>

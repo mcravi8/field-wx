@@ -159,10 +159,11 @@ function WindgramScreen({ lat, lon, m }) {
   );
 }
 function WxTabBar({ active, onNav }) {
+  // Calm UI: friendly Title-case nav labels (was the all-caps L.tabs.* — "SITES/NOW/SYS")
   const tabs = [
-    { id: "sites", label: L.tabs.sites },
-    { id: "now", label: L.tabs.now },
-    { id: "sys", label: L.tabs.sys },
+    { id: "sites", label: (L.tabsCalm && L.tabsCalm.sites) || "Sites" },
+    { id: "now", label: (L.tabsCalm && L.tabsCalm.now) || "Now" },
+    { id: "sys", label: (L.tabsCalm && L.tabsCalm.sys) || "Settings" },
   ];
   return (
     <div style={{ flexShrink: 0, height: 58, display: "flex", borderTop: "1px solid var(--hair)", position: "relative", zIndex: 3, background: "var(--chrome)", backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)" }}>
@@ -171,7 +172,7 @@ function WxTabBar({ active, onNav }) {
         return (
           <button key={tb.id} onClick={() => onNav(tb.id)} style={{ flex: 1, position: "relative", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, padding: 0 }}>
             <span style={{ position: "absolute", top: 0, width: 22, height: 3, borderRadius: 2, background: on ? "var(--accent)" : "transparent" }} />
-            <span className="mono" style={{ fontSize: 9.5, letterSpacing: "0.14em", color: on ? "var(--txt)" : "var(--faint)" }}>{tb.label}</span>
+            <span style={{ fontSize: 13, letterSpacing: "0.01em", fontWeight: on ? 600 : 400, color: on ? "var(--txt)" : "var(--faint)" }}>{tb.label}</span>
           </button>
         );
       })}
@@ -599,7 +600,8 @@ function TopoMap({ map, height = 280 }) {
 
 /* Override the vendored FlightSection (Volo Libero view): identical layout, but the
    temp/wind map panel is the interactive TopoMap. Sibling panels are the vendored globals. */
-function FlightSection({ flight }) {
+function FlightSection({ flight, hourly, onNav }) {
+  const grid12 = Array.isArray(hourly) ? hourly.slice(0, 12) : [];
   return (
     <div style={{ marginTop: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
@@ -607,9 +609,32 @@ function FlightSection({ flight }) {
         <Micro style={{ color: "var(--fg)", letterSpacing: "0.2em" }}>{L.flight.title}</Micro>
         <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
       </div>
+      {/* NEXT 12 HOURS temperature strip — at the top of Volo Libero (per request) */}
+      {grid12.length ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 9px" }}>
+            <Micro>{L.next12}</Micro>
+            {onNav ? <button onClick={() => onNav("hourly")} className="mono" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 9.5, letterSpacing: "0.14em", color: "var(--accent)" }}>{L.full} ▸</button> : null}
+          </div>
+          <div style={{ display: "flex", gap: 0, border: "1px solid var(--line)", overflowX: "auto" }} className="screen-scroll wx-box">
+            {grid12.map((h, i) => (
+              <div key={i} style={{ flex: "0 0 auto", width: 54, padding: "11px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 9, borderRight: i < grid12.length - 1 ? "1px solid var(--line)" : "none", background: i === 0 ? "var(--row-fill)" : "none" }}>
+                <span className="mono" style={{ fontSize: 9, letterSpacing: "0.06em", color: i === 0 ? "var(--accent)" : "var(--fg-faint)" }}>{i === 0 ? L.now : h.label}</span>
+                <span className="mono" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--fg-dim)" }}>{h.code}</span>
+                <span className="mono" style={{ fontSize: 15, color: "var(--fg)", fontVariantNumeric: "tabular-nums" }}>{h.temp}°</span>
+                <div style={{ width: 18, height: 2, background: "var(--line)", position: "relative" }}>
+                  <div style={{ position: "absolute", inset: 0, width: `${h.precip}%`, background: "var(--accent)" }} />
+                </div>
+                <span className="mono" style={{ fontSize: 8.5, color: h.precip >= 50 ? "var(--accent)" : "var(--fg-faint)" }}>{h.precip}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <FlyStrip flight={flight} />
-      <WindAloft flight={flight} />
+      {/* Windgram before Wind Aloft (per request) */}
       <Windgram wg={flight.windgram} />
+      <WindAloft flight={flight} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <ThermalsPanel flight={flight} />
         <CeilingPanel flight={flight} />

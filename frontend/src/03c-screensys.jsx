@@ -88,42 +88,61 @@ function Seg({ opts, val, set }) {
 }
 
 function ScreenSys({ lang, onLang, appearance, onAppearance, view, onView, units, onUnits }) {
-  const [toggles, setToggles] = useState({ severe: true, precip: true, daily: false, theme: true });
+  const [toggles, setToggles] = useState({ severe: true, precip: true, daily: false, flight: true });
   const flip = (k) => setToggles((t) => Object.assign({}, t, { [k]: !t[k] }));
-  const rows = [["severe", L.notif.severe], ["precip", L.notif.precip], ["daily", L.notif.daily], ["theme", L.notif.theme]];
-
+  const it = lang === "it";
+  // Calm-mockup labels: friendly Title-/sentence-case. Italian variants where the app is localized.
+  const T = {
+    title: it ? "Impostazioni" : "Settings",
+    language: it ? "LINGUA" : "LANGUAGE",
+    appearance: it ? "ASPETTO" : "APPEARANCE",
+    units: it ? "UNITÀ" : "UNITS",
+    notifications: it ? "NOTIFICHE" : "NOTIFICATIONS",
+    about: it ? "INFO" : "ABOUT",
+    english: "English", italiano: "Italiano",
+    auto: it ? "Auto" : "Auto", light: it ? "Chiaro" : "Light", dark: it ? "Scuro" : "Dark",
+    dataSource: it ? "Fonte dati" : "Data source",
+    refresh: it ? "Aggiornamento" : "Refresh",
+    refreshVal: it ? "Ogni 15 min" : "Every 15 min",
+  };
+  const notif = [
+    ["severe", it ? "Meteo avverso" : "Severe weather"],
+    ["precip", it ? "Precipitazioni" : "Precipitation"],
+    ["daily", it ? "Riepilogo giornaliero" : "Daily summary"],
+    ["flight", it ? "Finestre di volo" : "Flight windows"],
+  ];
   const seg = (opts, val, set) => <Seg opts={opts} val={val} set={set} />;
 
   return (
     <div className="screen-scroll" style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2 }}>
       <div style={{ padding: "16px 16px 22px" }}>
-        <span style={{ fontSize: 15, letterSpacing: "0.04em", color: "var(--fg)", fontWeight: 600, display: "block", marginBottom: 16 }}>{L.system}</span>
+        <span style={{ fontSize: 22, letterSpacing: "0.01em", color: "var(--fg)", fontWeight: 600, display: "block", marginBottom: 18 }}>{T.title}</span>
 
-        <Micro style={{ display: "block", marginBottom: 9 }}>{L.language}</Micro>
-        <div style={{ marginBottom: 18 }}>{seg([["ENGLISH", "en"], ["ITALIANO", "it"]], lang, onLang)}</div>
+        <Micro style={{ display: "block", marginBottom: 9 }}>{T.language}</Micro>
+        <div style={{ marginBottom: 18 }}>{seg([[T.english, "en"], [T.italiano, "it"]], lang, onLang)}</div>
 
-        <Micro style={{ display: "block", marginBottom: 9 }}>{L.display} · {L.theme}</Micro>
-        <div style={{ marginBottom: 18 }}>{seg([[L.dark, "dark"], [(L.auto || "AUTO"), "auto"], [L.light, "light"]], appearance, onAppearance)}</div>
+        <Micro style={{ display: "block", marginBottom: 9 }}>{T.appearance}</Micro>
+        <div style={{ marginBottom: 18 }}>{seg([[T.auto, "auto"], [T.light, "light"], [T.dark, "dark"]], appearance, onAppearance)}</div>
 
-        <Micro style={{ display: "block", marginBottom: 9 }}>{L.units}</Micro>
-        <div style={{ marginBottom: 18 }}>{seg([["°F · MPH", "imperial"], ["°C · KM/H", "metric"]], units, onUnits)}</div>
+        <Micro style={{ display: "block", marginBottom: 9 }}>{T.units}</Micro>
+        <div style={{ marginBottom: 18 }}>{seg([["°C · km/h", "metric"], ["°F · mph", "imperial"]], units, onUnits)}</div>
 
-        <Micro style={{ display: "block", marginBottom: 11 }}>{L.notifications}</Micro>
+        <Micro style={{ display: "block", marginBottom: 11 }}>{T.notifications}</Micro>
         <div className="wx-box" style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid var(--line)", marginBottom: 18 }}>
-          {rows.map(([k, lbl], i) => (
-            <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 13px", borderBottom: i < rows.length - 1 ? "1px solid var(--line)" : "none" }}>
-              <span className="mono" style={{ fontSize: 11, letterSpacing: "0.06em", color: "var(--fg)" }}>{lbl}</span>
+          {notif.map(([k, lbl], i) => (
+            <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 15px", borderBottom: i < notif.length - 1 ? "1px solid var(--line)" : "none" }}>
+              <span style={{ fontSize: 14, letterSpacing: "0.01em", color: "var(--fg)" }}>{lbl}</span>
               <Switch on={toggles[k]} onClick={() => flip(k)} />
             </div>
           ))}
         </div>
 
-        <Micro style={{ display: "block", marginBottom: 11 }}>{L.config}</Micro>
+        <Micro style={{ display: "block", marginBottom: 11 }}>{T.about}</Micro>
         <div className="wx-box" style={{ border: "1px solid var(--line)" }}>
-          {[[L.cfg.dataSource, "NWS · GFS · HRRR"], [L.cfg.refresh, L.cfg.refreshVal], [L.cfg.mapLayers, L.cfg.mapVal], [L.cfg.about, "v2.4.0 · BUILD 1182"]].map(([k, v], i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px", borderBottom: i < 3 ? "1px solid var(--line)" : "none" }}>
-              <span className="mono" style={{ fontSize: 11, letterSpacing: "0.06em", color: "var(--fg)" }}>{k}</span>
-              <span className="mono" style={{ fontSize: 10, letterSpacing: "0.06em", color: "var(--fg-dim)" }}>{v} ▸</span>
+          {[[T.dataSource, "Open-Meteo"], [T.refresh, T.refreshVal]].map(([k, v], i, a) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px", borderBottom: i < a.length - 1 ? "1px solid var(--line)" : "none" }}>
+              <span style={{ fontSize: 14, letterSpacing: "0.01em", color: "var(--fg)" }}>{k}</span>
+              <span style={{ fontSize: 13, letterSpacing: "0.01em", color: "var(--fg-dim)" }}>{v} ›</span>
             </div>
           ))}
         </div>
