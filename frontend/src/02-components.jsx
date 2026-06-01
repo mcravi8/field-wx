@@ -205,17 +205,76 @@ function _idwTemp(grid, la, lo, cosLat) {
   }
   return den ? num / den : 0;
 }
+// ---- topographic contours: choose a "nice" elevation interval for the terrain's range ----
+function _contourLevels(min, max) {
+  const range = max - min;
+  if (!(range > 0)) return { levels: [], step: 0 };
+  const steps = [10, 20, 25, 50, 100, 200, 250, 500, 1000];
+  let step = steps[steps.length - 1];
+  for (let i = 0; i < steps.length; i++) { if (range / steps[i] <= 12) { step = steps[i]; break; } }
+  const levels = [], start = Math.ceil((min + 1e-6) / step) * step;
+  for (let v = start; v < max; v += step) levels.push(Math.round(v));
+  return { levels: levels, step: step };
+}
+// Marching squares over a row-major NxN elevation grid (row 0 = NORTH edge). For each level, emits an
+// array of [[lat,lon],[lat,lon]] segments in GEOGRAPHIC coords, so they can be re-projected to the
+// canvas on every pan/zoom. Bit order TL=8 TR=4 BR=2 BL=1; complementary cases share a segment.
+function _msContours(g, levels) {
+  const N = g.n, E = g.elev, north = g.north, south = g.south, west = g.west, east = g.east;
+  const latOf = function (rf) { return north - (north - south) * rf / (N - 1); };
+  const lonOf = function (cf) { return west + (east - west) * cf / (N - 1); };
+  const at = function (r, c) { return E[r * N + c]; };
+  const out = [];
+  for (let li = 0; li < levels.length; li++) {
+    const L = levels[li], segs = [];
+    for (let r = 0; r < N - 1; r++) {
+      for (let c = 0; c < N - 1; c++) {
+        const tl = at(r, c), tr = at(r, c + 1), br = at(r + 1, c + 1), bl = at(r + 1, c);
+        if (tl == null || tr == null || br == null || bl == null) continue;
+        let idx = 0;
+        if (tl > L) idx |= 8;
+        if (tr > L) idx |= 4;
+        if (br > L) idx |= 2;
+        if (bl > L) idx |= 1;
+        if (idx === 0 || idx === 15) continue;
+        const f = function (a, b) { return (L - a) / (b - a); };
+        const top = function () { return [latOf(r), lonOf(c + f(tl, tr))]; };
+        const right = function () { return [latOf(r + f(tr, br)), lonOf(c + 1)]; };
+        const bottom = function () { return [latOf(r + 1), lonOf(c + f(bl, br))]; };
+        const left = function () { return [latOf(r + f(tl, bl)), lonOf(c)]; };
+        switch (idx) {
+          case 1: case 14: segs.push([left(), bottom()]); break;
+          case 2: case 13: segs.push([bottom(), right()]); break;
+          case 3: case 12: segs.push([left(), right()]); break;
+          case 4: case 11: segs.push([top(), right()]); break;
+          case 6: case 9: segs.push([top(), bottom()]); break;
+          case 7: case 8: segs.push([left(), top()]); break;
+          case 5: segs.push([top(), right()]); segs.push([left(), bottom()]); break;  // saddle
+          case 10: segs.push([left(), top()]); segs.push([bottom(), right()]); break;  // saddle
+        }
+      }
+    }
+    if (segs.length) out.push({ level: L, segs: segs });
+  }
+  return out;
+}
 function TopoMap({ map, height = 280 }) {
   const wrapRef = React.useRef(null);
   const mapRef = React.useRef(null);     // Leaflet map instance
   const heatRef = React.useRef(null);    // canvas for the temperature field
+  const contourRef = React.useRef(null); // canvas for elevation contour isolines
   const flowRef = React.useRef(null);    // canvas for wind streaks
   const markerRef = React.useRef(null);  // marker LayerGroup
   const rafRef = React.useRef(0);
   const refetchRef = React.useRef(null); // debounce timer for pan/zoom refetch
   const reqRef = React.useRef(0);        // latest refetch request id (drop stale responses)
+  const elevReqRef = React.useRef(0);    // latest elevation-grid request id
+  const elevKeyRef = React.useRef(null); // bounds key of the loaded/loading elevation grid (dedupe)
+  const elevBackoffRef = React.useRef(0); // consecutive elevation-fetch failures (rate-limit backoff)
+  const elevRef = React.useRef(null);    // computed contours { contours, majors, step, labels }
   const drawMarkersRef = React.useRef(function () {}); // redraw town labels for current dataRef
   const [stale, setStale] = React.useState(false);     // viewing area lacks fresh data yet
+  const [contourStep, setContourStep] = React.useState(0); // elevation interval (m) for the legend
   const [ready, setReady] = React.useState(!!_grabLeaflet());
   // Only the live data layer emits the grid/bounds shape this map needs. SIM/mock mode and the
   // initial pre-fetch render pass the old genTempMap shape (pts with x/y, no grid) — guard against it
@@ -258,15 +317,16 @@ function TopoMap({ map, height = 280 }) {
       maxZoom: 15, attribution: "© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)",
     }).addTo(m);
 
-    // a Leaflet "overlay pane" canvas pair (heat under markers, flow above heat)
+    // overlay-pane canvas stack (under markers): heat field → elevation contours → wind streaks
     const pane = m.getPanes().overlayPane;
     const mkCanvas = function (z) { const c = document.createElement("canvas"); c.style.position = "absolute"; c.style.pointerEvents = "none"; c.style.zIndex = z; pane.appendChild(c); return c; };
     heatRef.current = mkCanvas(1);
-    flowRef.current = mkCanvas(2);
+    contourRef.current = mkCanvas(2);
+    flowRef.current = mkCanvas(3);
     markerRef.current = LF.layerGroup().addTo(m);
     mapRef.current = m;
 
-    const redraw = function () { _paintHeat(); };
+    const redraw = function () { _paintHeat(); _paintContours(); };
     m.on("move zoom resize viewreset", redraw);
     // refetch-on-pan: when the view settles, pull a fresh grid + towns for the NEW visible bounds,
     // so the heat field + wind streaks represent wherever you've panned/zoomed (not the original site).
@@ -290,11 +350,12 @@ function TopoMap({ map, height = 280 }) {
             _paintHeat(); if (drawMarkersRef.current) drawMarkersRef.current();
           })
           .catch(function () { /* keep showing prior field; stale flag remains */ });
+        _refetchElev();   // also pull terrain elevation for the new view (deduped by bounds key)
       }, 480);
     }
     m.on("moveend zoomend", scheduleRefetch);
-    setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _fit(); _paintHeat(); }, 60);
-    [220, 480].forEach(function (d) { setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _paintHeat(); }, d); });
+    setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _fit(); _paintHeat(); _refetchElev(); }, 60);
+    [220, 480].forEach(function (d) { setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _paintHeat(); _paintContours(); }, d); });
 
     // size+position both canvases to the current map viewport, in layer (pane) coordinates
     function syncCanvas(cv) {
@@ -312,6 +373,7 @@ function TopoMap({ map, height = 280 }) {
       const d = dataRef.current; if (!d || !d.grid || !d.grid.length) return;
       const cv = heatRef.current; if (!cv) return;
       const { ctx, w, h } = syncCanvas(cv);
+      if (w <= 0 || h <= 0) return;   // map not sized yet (avoids degenerate sampling)
       const cols = 64, rows = Math.max(8, Math.round(64 * h / Math.max(1, w)));
       const off = document.createElement("canvas"); off.width = cols; off.height = rows;
       const octx = off.getContext("2d"); const img = octx.createImageData(cols, rows);
@@ -332,6 +394,94 @@ function TopoMap({ map, height = 280 }) {
     }
     mapRef.current._paintHeat = _paintHeat;
     mapRef.current._syncCanvas = syncCanvas;
+
+    // paint elevation contour isolines (precomputed geographic segments → projected to the viewport).
+    // Re-themed for dark/light; halo pass keeps the lines legible over the colored heat field.
+    function _paintContours() {
+      const cv = contourRef.current; if (!cv) return;
+      const sc = syncCanvas(cv), ctx = sc.ctx, w = sc.w, h = sc.h;
+      ctx.clearRect(0, 0, w, h);
+      if (w <= 0 || h <= 0) return;   // map not sized yet
+      const data = elevRef.current; if (!data || !data.contours || !data.contours.length) return;
+      const dark = document.documentElement.getAttribute("data-theme") === "dark";
+      const lineRGB = dark ? "236,227,212" : "58,44,28";
+      const halo = dark ? "rgba(9,12,20,0.5)" : "rgba(255,255,255,0.72)";   // brighter halo in light theme for legibility over warm heat colors
+      const majorA = dark ? 0.62 : 0.72, minorA = dark ? 0.4 : 0.52;        // a touch stronger in light theme
+      // project every segment to container points once (reused across the halo + line passes)
+      const proj = data.contours.map(function (cl) {
+        const pts = [];
+        for (let i = 0; i < cl.segs.length; i++) {
+          const s = cl.segs[i];
+          const a = m.latLngToContainerPoint([s[0][0], s[0][1]]);
+          const b = m.latLngToContainerPoint([s[1][0], s[1][1]]);
+          pts.push(a.x, a.y, b.x, b.y);
+        }
+        return { major: data.majors.indexOf(cl.level) !== -1, pts: pts };
+      });
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      const stroke = function (p) { ctx.beginPath(); for (let i = 0; i < p.pts.length; i += 4) { ctx.moveTo(p.pts[i], p.pts[i + 1]); ctx.lineTo(p.pts[i + 2], p.pts[i + 3]); } ctx.stroke(); };
+      ctx.strokeStyle = halo;
+      proj.forEach(function (p) { ctx.lineWidth = (p.major ? 1.4 : 0.8) + 1.3; stroke(p); });        // halo pass
+      proj.forEach(function (p) { ctx.lineWidth = p.major ? 1.4 : 0.8; ctx.strokeStyle = "rgba(" + lineRGB + "," + (p.major ? majorA : minorA) + ")"; stroke(p); }); // line pass
+      // major-contour elevation labels: project each contour's precomputed geographic anchor (no per-frame
+      // segment search), skip if it would clip the edge (measured text width) or overlap an already-placed label
+      const labels = data.labels || [];
+      if (labels.length) {
+        ctx.font = "600 9px 'Hanken Grotesk', system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const placed = [];
+        for (let k = 0; k < labels.length; k++) {
+          const lb = labels[k], pt = m.latLngToContainerPoint([lb.lat, lb.lon]);
+          const txt = lb.level + "m", hw = ctx.measureText(txt).width / 2 + 2, hh = 7;
+          if (pt.x - hw < 2 || pt.x + hw > w - 2 || pt.y - hh < 2 || pt.y + hh > h - 2) continue;   // off-screen / clipped
+          let clash = false;
+          for (let j = 0; j < placed.length; j++) { const q = placed[j]; if (Math.abs(pt.x - q.x) < hw + q.hw && Math.abs(pt.y - q.y) < hh + q.hh) { clash = true; break; } }
+          if (clash) continue;
+          placed.push({ x: pt.x, y: pt.y, hw: hw, hh: hh });
+          ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(txt, pt.x, pt.y);
+          ctx.fillStyle = "rgba(" + lineRGB + ",0.96)"; ctx.fillText(txt, pt.x, pt.y);
+        }
+      }
+    }
+    mapRef.current._paintContours = _paintContours;
+
+    // fetch a dense terrain-elevation grid for the current view, extract contour isolines, repaint.
+    // Deduped by a coarse bounds key so small pans don't refetch; request id drops superseded responses.
+    function _refetchElev() {
+      if (!WeatherAPI || !WeatherAPI.elevationGrid || !mapRef.current) return;
+      let b; try { b = mapRef.current.getBounds(); } catch (e) { return; }   // throws/null if the view isn't set yet
+      if (!b) return;
+      const south = b.getSouth(), west = b.getWest(), north = b.getNorth(), east = b.getEast();
+      const key = south.toFixed(2) + "," + west.toFixed(2) + "," + north.toFixed(2) + "," + east.toFixed(2);
+      if (key === elevKeyRef.current) return;
+      elevKeyRef.current = key;
+      const id = ++elevReqRef.current;
+      WeatherAPI.elevationGrid(south, west, north, east, 20).then(function (g) {
+        if (id !== elevReqRef.current || !mapRef.current || !g) return;
+        elevBackoffRef.current = 0;   // success → reset backoff
+        const lv = _contourLevels(g.min, g.max);
+        let majors = lv.step ? lv.levels.filter(function (L) { return Math.round(L / lv.step) % 5 === 0; }) : [];
+        if (!majors.length) majors = lv.levels.filter(function (L, i) { return i % 2 === 0; });
+        const contours = _msContours(g, lv.levels);
+        // one geographic label anchor per major contour (median segment midpoint) — projected per frame,
+        // so the paint pass never has to search every segment to place labels
+        const labels = [];
+        contours.forEach(function (cl) {
+          if (majors.indexOf(cl.level) === -1 || !cl.segs.length) return;
+          const s = cl.segs[Math.floor(cl.segs.length / 2)];
+          labels.push({ level: cl.level, lat: (s[0][0] + s[1][0]) / 2, lon: (s[0][1] + s[1][1]) / 2 });
+        });
+        elevRef.current = { contours: contours, majors: majors, step: lv.step, labels: labels };
+        setContourStep(lv.step);
+        _paintContours();
+      }).catch(function () {
+        // keep the key so we don't re-hammer the same failing area; release it after a growing backoff
+        // (Open-Meteo rate-limits → 429) so a later interaction can retry
+        if (id !== elevReqRef.current) return;
+        const failedKey = elevKeyRef.current, wait = Math.min(30000, 4000 * Math.pow(2, elevBackoffRef.current++));
+        setTimeout(function () { if (elevKeyRef.current === failedKey) elevKeyRef.current = null; }, wait);
+      });
+    }
+    mapRef.current._refetchElev = _refetchElev;
 
     // animated wind streaks: advected by the grid wind nearest each particle (real direction/speed)
     const parts = [];
@@ -397,12 +547,23 @@ function TopoMap({ map, height = 280 }) {
   // when the active SITE changes (map prop), reset the view+data to that site and redraw
   React.useEffect(function () {
     const m = mapRef.current; if (!m || !usable) return;
+    try { m.invalidateSize(); } catch (e) {}   // container may have resized since this map last drew
     reqRef.current++;                 // cancel any in-flight pan refetch from the previous site
     dataRef.current = map; setStale(false);
     if (m._fit) m._fit();
     if (m._paintHeat) m._paintHeat();
+    if (m._refetchElev) m._refetchElev();
     if (drawMarkersRef.current) drawMarkersRef.current();
   }, [map]);
+
+  // recolor contours when the appearance/theme flips: _paintContours reads data-theme at paint time,
+  // but only fires on map events — so without this, a Dark/Light toggle wouldn't recolor until the next pan
+  React.useEffect(function () {
+    if (typeof MutationObserver === "undefined") return;
+    const obs = new MutationObserver(function () { const m = mapRef.current; if (m && m._paintContours) m._paintContours(); });
+    try { obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] }); } catch (e) {}
+    return function () { obs.disconnect(); };
+  }, []);
 
   // teardown
   React.useEffect(function () {
@@ -419,7 +580,7 @@ function TopoMap({ map, height = 280 }) {
     <Panel pad={0} style={{ marginTop: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px 8px", borderBottom: "1px solid var(--line)" }}>
         <Micro>{L.flight.tempMap}</Micro>
-        <span className="mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", color: stale ? "var(--accent)" : "var(--fg-faint)" }}>{stale ? "UPDATING…" : L.flight.mapNote}</span>
+        <span className="mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", color: stale ? "var(--accent)" : "var(--fg-faint)" }}>{stale ? "UPDATING…" : (contourStep ? "CONTOUR · " + contourStep + " M" : L.flight.mapNote)}</span>
       </div>
       {usable
         ? <div ref={wrapRef} style={{ width: "100%", height: height, background: "var(--row-fill)" }} />

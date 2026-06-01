@@ -312,6 +312,33 @@ const WeatherAPI = (function () {
     const pts = towns.map(function (t) { return { name: t.name, lat: t.lat, lon: t.lon, primary: false, t: nearestT(t.lat, t.lon) }; });
     return { grid: grid, pts: pts, bounds: { south: south, west: west, north: north, east: east }, lat0: latC, lon0: lonC };
   }
+  // ---- dense terrain elevation grid over a bbox (for topographic contour isolines) ----
+  // Open-Meteo elevation API caps at 100 coords/call, so we sample an NxN regular grid and fetch in
+  // ≤100-point batches. Returns elev as a flat row-major array (row 0 = NORTH edge) + min/max for level pick.
+  async function elevationGridForBounds(south, west, north, east, gridN) {
+    const N = Math.max(8, Math.min(40, gridN || 24));
+    if (!(isFinite(south) && isFinite(west) && isFinite(north) && isFinite(east)) || north <= south || east <= west) return null;
+    const lats = [], lons = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      lats.push(+(north - (north - south) * r / (N - 1)).toFixed(4));   // row 0 = north
+      lons.push(+(west + (east - west) * c / (N - 1)).toFixed(4));      // col 0 = west
+    }
+    const elev = new Array(lats.length).fill(null);
+    const BATCH = 100, jobs = [];
+    for (let i = 0; i < lats.length; i += BATCH) {
+      const la = lats.slice(i, i + BATCH), lo = lons.slice(i, i + BATCH), off = i;
+      const url = "https://api.open-meteo.com/v1/elevation?latitude=" + la.join(",") + "&longitude=" + lo.join(",");
+      jobs.push(getJson(url, "elevation").then(function (j) {
+        const arr = (j && Array.isArray(j.elevation)) ? j.elevation : [];
+        for (let k = 0; k < arr.length; k++) { const v = +arr[k]; elev[off + k] = isFinite(v) ? v : null; }
+      }));
+    }
+    await Promise.all(jobs);
+    let min = Infinity, max = -Infinity, any = false;
+    for (let i = 0; i < elev.length; i++) { const v = elev[i]; if (v != null) { any = true; if (v < min) min = v; if (v > max) max = v; } }
+    if (!any) throw new Error("elevation grid empty");
+    return { n: N, south: south, west: west, north: north, east: east, elev: elev, min: min, max: max };
+  }
   // ---- derived cloud base (LCL): Open-Meteo cloud_base is null, so compute the lifting condensation level ----
   function cloudBaseM(current, elevation) {
     const lcl = thermalBaseM(current.temp, current.dewpoint, elevation);
@@ -411,6 +438,7 @@ const WeatherAPI = (function () {
     getFull: function (lat, lon, units) { return compose(lat, lon, units); },
     // refetch-on-pan: fresh current-conditions grid + town labels for the visible map bounds
     gridForBounds: function (south, west, north, east, system) { return gridForBounds(south, west, north, east, system); },
+    elevationGrid: function (south, west, north, east, gridN) { return elevationGridForBounds(south, west, north, east, gridN); },
     getNow: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { current: r.current, flight: r.flight, units: r.units }; }); },
     getWeek: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { daily: r.daily, units: r.units }; }); },
     getAltitude: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { altitudeWinds: r.flight.altitudeWinds, windgram: r.flight.windgram, thermals: { thermalBase: r.flight.thermalBase, thermalTop: r.flight.thermalTop, thermalStrength: r.flight.thermalStrength, boundaryLayer: r.flight.boundaryLayer }, units: r.units }; }); },
