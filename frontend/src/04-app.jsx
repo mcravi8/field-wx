@@ -3,7 +3,10 @@ function App() {
   const [nav, setNav] = useState(() => { const n = localStorage.getItem("wx-nav") || "now"; return ["now", "week", "sites", "sys", "hourly"].includes(n) ? n : "now"; });
   const [navDir, setNavDir] = useState(null); // "fwd" | "back" | null
   const [lang, setLang] = useState(() => localStorage.getItem("wx-lang") || "en");
-  const [theme, setTheme] = useState(() => localStorage.getItem("wx-theme") || "dark");
+  // appearance: Dark · Auto · Light (replaces the old 2-way theme toggle); persisted to fieldwx_appearance, default auto
+  const [appearance, setAppearance] = useState(() => { const a = localStorage.getItem("fieldwx_appearance"); return (a === "dark" || a === "light" || a === "auto") ? a : "auto"; });
+  const [sysDark, setSysDark] = useState(() => { try { return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches); } catch (e) { return true; } });
+  const resolvedTheme = appearance === "auto" ? (sysDark ? "dark" : "light") : appearance;
   const [view, setView] = useState(() => localStorage.getItem("wx-view") || "normal");
   const [unitsPref, setUnitsPref] = useState(() => localStorage.getItem("wx-units") || "");
 
@@ -47,10 +50,18 @@ function App() {
   useEffect(() => { document.documentElement.style.setProperty("--accent", t.accent); }, [t.accent]);
   useEffect(() => { localStorage.setItem("wx-nav", nav); }, [nav]);
   useEffect(() => { localStorage.setItem("wx-lang", lang); }, [lang]);
+  // appearance=auto follows the OS; re-apply on system change
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("wx-theme", theme);
-  }, [theme]);
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (e) => setSysDark(e.matches);
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", onChange); else if (mq.removeListener) mq.removeListener(onChange); };
+  }, []);
+  useEffect(() => { try { localStorage.setItem("fieldwx_appearance", appearance); } catch (e) {} }, [appearance]);
+  // feed the resolved (dark|light) mode to the existing theme machinery: vendored light CSS, body backdrop, Atmosphere
+  useEffect(() => { document.documentElement.setAttribute("data-theme", resolvedTheme); }, [resolvedTheme]);
   useEffect(() => { localStorage.setItem("wx-view", view); }, [view]);
   useEffect(() => { if (unitsPref) localStorage.setItem("wx-units", unitsPref); else localStorage.removeItem("wx-units"); }, [unitsPref]);
 
@@ -90,14 +101,14 @@ function App() {
   else if (nav === "hourly") screen = <ScreenHourly m={mView} hourly={hourly} />;
   else if (nav === "week") screen = <ScreenWeek />;
   else if (nav === "sites") screen = <ScreenSites sites={sites} activeId={activeSite.id} onSelect={selectSite} onAdd={addSite} onDelete={deleteSite} onReorder={reorderSites} />;
-  else screen = <ScreenSys lang={lang} onLang={setLang} theme={theme} onTheme={setTheme} view={view} onView={setView} units={unitsSystem} onUnits={setUnitsPref} />;
+  else screen = <ScreenSys lang={lang} onLang={setLang} appearance={appearance} onAppearance={setAppearance} view={view} onView={setView} units={unitsSystem} onUnits={setUnitsPref} />;
 
   const scrClass = navDir === "fwd" ? "scr-r" : navDir === "back" ? "scr-l" : "scr-fade";
 
   return (
     <React.Fragment>
-      <div style={{ position: "fixed", inset: 0, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Atmosphere atmos={atmos} accent={t.accent} theme={theme} night={isNight && atmos !== "grid"} />
+      <div className="wx-shell" data-appearance={appearance} style={{ position: "fixed", inset: 0, background: "var(--app-sky)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Atmosphere atmos={atmos} accent={t.accent} theme={resolvedTheme} night={isNight && atmos !== "grid"} />
         <TopBar name={activeSite.name} coord={(live.loading && !live.data) ? (wxFmtCoord(activeSite.lat, activeSite.lon) + " · SYNC…") : wxFmtCoord(activeSite.lat, activeSite.lon)} code={m.metar} night={isNight} />
         <div key={nav} className={scrClass} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, position: "relative", zIndex: 1 }}>
           {screen}
@@ -118,7 +129,7 @@ function App() {
           value={t.atmosphere}
           onChange={(v) => setTweak("atmosphere", v)}
         />
-        <p style={{ font: "10px/1.5 'Geist Mono', monospace", color: "var(--fg-faint)", letterSpacing: "0.04em", margin: "2px 4px 0", textTransform: "uppercase" }}>
+        <p style={{ font: "10px/1.5 'Hanken Grotesk', system-ui, sans-serif", color: "var(--fg-faint)", letterSpacing: "0.04em", margin: "2px 4px 0", textTransform: "uppercase" }}>
           Drives every readout + the live conditions field behind the UI.
         </p>
 

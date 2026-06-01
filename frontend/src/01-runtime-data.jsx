@@ -218,21 +218,25 @@ const WeatherAPI = (function () {
   }
   // A handful of well-spaced, genuinely-populated towns for labels (population gate + spacing dedup avoids the
   // hamlet/street pile-up). HTTPS host avoids mixed-content blocking. Best-effort: failure just drops the labels.
-  async function fetchMajorTowns(lat, lon) {
+  function fetchMajorTowns(lat, lon) { return fetchMajorTownsAt(lat, lon, MAP_HALF_KM); }
+  async function fetchMajorTownsAt(lat, lon, radiusKm) {
+    const radius = Math.min(300, Math.max(5, Math.round(radiusKm || MAP_HALF_KM)));
     const url = "https://secure.geonames.org/findNearbyPlaceNameJSON?lat=" + lat + "&lng=" + lon +
-      "&radius=" + Math.round(MAP_HALF_KM) + "&maxRows=60&cities=cities1000&username=" + encodeURIComponent(GEONAMES_USERNAME);
+      "&radius=" + radius + "&maxRows=80&cities=cities1000&username=" + encodeURIComponent(GEONAMES_USERNAME);
     const j = await getJson(url, "geonames");
     if (j && j.status) throw new Error("GeoNames: " + ((j.status && j.status.message) || "error"));
     const g = (j && j.geonames) || [];
+    // bigger views → require bigger towns + wider label spacing so the map doesn't clutter
+    const popGate = radius > 120 ? 30000 : radius > 50 ? 8000 : 2000;
+    const minKm = Math.max(4, radius / 6);
     const cand = g.map(function (p) { return { name: String(p.name || "").toUpperCase(), lat: +p.lat, lon: +p.lng, pop: +p.population || 0, dist: +p.distance || 0 }; })
-                  .filter(function (p) { return isFinite(p.lat) && isFinite(p.lon) && p.pop >= 2000; })
+                  .filter(function (p) { return isFinite(p.lat) && isFinite(p.lon) && p.pop >= popGate; })
                   .sort(function (a, b) { return b.pop - a.pop; });
-    // spacing dedup: keep a town only if it's >~4km from every town already kept; cap at 8 labels
-    const kept = [], MIN_KM = 4, cosLat = Math.cos(lat * Math.PI / 180);
+    const kept = [], cosLat = Math.cos(lat * Math.PI / 180);
     for (const p of cand) {
       const clash = kept.some(function (q) {
         const dN = (p.lat - q.lat) * 111.32, dE = (p.lon - q.lon) * 111.32 * cosLat;
-        return Math.sqrt(dN * dN + dE * dE) < MIN_KM;
+        return Math.sqrt(dN * dN + dE * dE) < minKm;
       });
       if (!clash) kept.push(p);
       if (kept.length >= 8) break;
@@ -273,6 +277,40 @@ const WeatherAPI = (function () {
     const pts = towns.map(function (t) { return { name: t.name, lat: t.lat, lon: t.lon, primary: false, t: nearestT(t.lat, t.lon) }; });
     pts.unshift({ name: "CURRENT", lat: +lat, lon: +lon, primary: true, t: Math.round(current.temp) });
     return { grid: grid, pts: pts, bounds: b, lat0: +lat, lon0: +lon, dirDeg: current.windDirDeg, wind: current.wind, gust: current.gust };
+  }
+  // ---- refetch-on-pan: a fresh CURRENT grid + town labels for ARBITRARY visible bounds ----
+  // Uses current= (no hour-index needed). N adapts to the box so a zoomed-out view stays a sane request size.
+  async function gridForBounds(south, west, north, east, system) {
+    const u = (system === "imperial") ? IMPERIAL : METRIC;
+    if (!(isFinite(south) && isFinite(west) && isFinite(north) && isFinite(east)) || north <= south || east <= west) return null;
+    const latC = (south + north) / 2, lonC = (west + east) / 2;
+    const spanKm = Math.max((north - south) * 111.32, (east - west) * 111.32 * Math.cos(latC * Math.PI / 180));
+    const N = spanKm > 600 ? 7 : spanKm > 150 ? 6 : 5;   // cap points; coarser when the view is huge
+    const lats = [], lons = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      lats.push((south + (north - south) * r / (N - 1)).toFixed(4));
+      lons.push((west + (east - west) * c / (N - 1)).toFixed(4));
+    }
+    const url = OM + "?latitude=" + lats.join(",") + "&longitude=" + lons.join(",") +
+      "&current=temperature_2m,wind_speed_10m,wind_direction_10m&temperature_unit=" + u.temperature_unit +
+      "&wind_speed_unit=" + u.wind_speed_unit + "&timezone=auto";
+    const radiusKm = Math.min(300, Math.max(8, Math.round(spanKm / 2)));
+    const [gj, towns] = await Promise.all([
+      getJson(url, "gridbounds"),
+      fetchMajorTownsAt(latC, lonC, radiusKm).catch(function () { return []; }),
+    ]);
+    const arr = Array.isArray(gj) ? gj : [gj];
+    const grid = arr.map(function (p, i) {
+      const c = p && p.current;
+      return { lat: +lats[i], lon: +lons[i], elev: (p && p.elevation != null) ? Math.round(p.elevation) : null,
+        t: c && c.temperature_2m != null ? Math.round(c.temperature_2m) : null,
+        wind: c && c.wind_speed_10m != null ? Math.round(c.wind_speed_10m) : 0,
+        dirDeg: c && c.wind_direction_10m != null ? Math.round(c.wind_direction_10m) : 0 };
+    }).filter(function (g) { return isFinite(g.lat) && isFinite(g.lon) && g.t != null; });
+    if (!grid.length) return null;
+    const nearestT = function (la, lo) { let best = grid[0], bd = 1e9; grid.forEach(function (g) { const d = (g.lat - la) * (g.lat - la) + (g.lon - lo) * (g.lon - lo); if (d < bd) { bd = d; best = g; } }); return best.t; };
+    const pts = towns.map(function (t) { return { name: t.name, lat: t.lat, lon: t.lon, primary: false, t: nearestT(t.lat, t.lon) }; });
+    return { grid: grid, pts: pts, bounds: { south: south, west: west, north: north, east: east }, lat0: latC, lon0: lonC };
   }
   // ---- derived cloud base (LCL): Open-Meteo cloud_base is null, so compute the lifting condensation level ----
   function cloudBaseM(current, elevation) {
@@ -371,6 +409,8 @@ const WeatherAPI = (function () {
 
   return {
     getFull: function (lat, lon, units) { return compose(lat, lon, units); },
+    // refetch-on-pan: fresh current-conditions grid + town labels for the visible map bounds
+    gridForBounds: function (south, west, north, east, system) { return gridForBounds(south, west, north, east, system); },
     getNow: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { current: r.current, flight: r.flight, units: r.units }; }); },
     getWeek: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { daily: r.daily, units: r.units }; }); },
     getAltitude: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { altitudeWinds: r.flight.altitudeWinds, windgram: r.flight.windgram, thermals: { thermalBase: r.flight.thermalBase, thermalTop: r.flight.thermalTop, thermalStrength: r.flight.thermalStrength, boundaryLayer: r.flight.boundaryLayer }, units: r.units }; }); },

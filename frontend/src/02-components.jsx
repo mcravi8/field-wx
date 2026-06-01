@@ -166,13 +166,13 @@ function WxTabBar({ active, onNav }) {
     { id: "sys", label: L.tabs.sys },
   ];
   return (
-    <div style={{ flexShrink: 0, height: 58, display: "flex", borderTop: "1px solid var(--line-strong)", position: "relative", zIndex: 3, background: "var(--chrome)", backdropFilter: "blur(8px)" }}>
+    <div style={{ flexShrink: 0, height: 58, display: "flex", borderTop: "1px solid var(--hair)", position: "relative", zIndex: 3, background: "var(--chrome)", backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)" }}>
       {tabs.map((tb) => {
         const on = tb.id === active;
         return (
-          <button key={tb.id} onClick={() => onNav(tb.id)} style={{ flex: 1, background: "none", border: "none", borderTop: on ? "2px solid var(--accent)" : "2px solid transparent", marginTop: -1, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, padding: 0 }}>
-            <span style={{ width: 5, height: 5, background: on ? "var(--accent)" : "var(--fg-faint)", display: "block" }} />
-            <span className="mono" style={{ fontSize: 9.5, letterSpacing: "0.14em", color: on ? "var(--fg)" : "var(--fg-faint)" }}>{tb.label}</span>
+          <button key={tb.id} onClick={() => onNav(tb.id)} style={{ flex: 1, position: "relative", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, padding: 0 }}>
+            <span style={{ position: "absolute", top: 0, width: 22, height: 3, borderRadius: 2, background: on ? "var(--accent)" : "transparent" }} />
+            <span className="mono" style={{ fontSize: 9.5, letterSpacing: "0.14em", color: on ? "var(--txt)" : "var(--faint)" }}>{tb.label}</span>
           </button>
         );
       })}
@@ -212,14 +212,21 @@ function TopoMap({ map, height = 280 }) {
   const flowRef = React.useRef(null);    // canvas for wind streaks
   const markerRef = React.useRef(null);  // marker LayerGroup
   const rafRef = React.useRef(0);
-  const dataRef = React.useRef(map);
+  const refetchRef = React.useRef(null); // debounce timer for pan/zoom refetch
+  const reqRef = React.useRef(0);        // latest refetch request id (drop stale responses)
+  const drawMarkersRef = React.useRef(function () {}); // redraw town labels for current dataRef
+  const [stale, setStale] = React.useState(false);     // viewing area lacks fresh data yet
   const [ready, setReady] = React.useState(!!_grabLeaflet());
   // Only the live data layer emits the grid/bounds shape this map needs. SIM/mock mode and the
   // initial pre-fetch render pass the old genTempMap shape (pts with x/y, no grid) — guard against it
   // so a missing grid/center degrades to a placeholder instead of throwing inside Leaflet.
   const usable = !!(map && Array.isArray(map.grid) && map.grid.length &&
     isFinite(+map.lat0) && isFinite(+map.lon0) && map.bounds);
-  dataRef.current = usable ? map : null;
+  // dataRef holds the grid CURRENTLY painted. It is owned by the [map] effect (site change) and the
+  // pan/zoom refetch — NOT reset every render, or a refetched grid would be clobbered back to the site
+  // grid on the next render. Only force it to null here when the prop isn't usable (→ render placeholder).
+  const dataRef = React.useRef(usable ? map : null);
+  if (!usable) dataRef.current = null;
 
   // ensure Leaflet present (head/CDN; dynamic fallback keeps the component self-sufficient)
   React.useEffect(function () {
@@ -261,6 +268,31 @@ function TopoMap({ map, height = 280 }) {
 
     const redraw = function () { _paintHeat(); };
     m.on("move zoom resize viewreset", redraw);
+    // refetch-on-pan: when the view settles, pull a fresh grid + towns for the NEW visible bounds,
+    // so the heat field + wind streaks represent wherever you've panned/zoomed (not the original site).
+    function scheduleRefetch() {
+      if (!WeatherAPI || !WeatherAPI.gridForBounds) return;
+      if (refetchRef.current) clearTimeout(refetchRef.current);
+      // if the current view has wandered outside the data we're showing, mark it stale (stop edge-clamp lying)
+      const d = dataRef.current, b = m.getBounds();
+      if (d && d.bounds) {
+        const outside = b.getSouth() < d.bounds.south - 0.02 || b.getNorth() > d.bounds.north + 0.02 ||
+                        b.getWest() < d.bounds.west - 0.02 || b.getEast() > d.bounds.east + 0.02;
+        if (outside) setStale(true);
+      }
+      refetchRef.current = setTimeout(function () {
+        const bb = m.getBounds(), id = ++reqRef.current;
+        const sys = (window.U && window.U.temp === "°F") ? "imperial" : "metric";  // match the app's current unit system
+        WeatherAPI.gridForBounds(bb.getSouth(), bb.getWest(), bb.getNorth(), bb.getEast(), sys)
+          .then(function (g) {
+            if (id !== reqRef.current || !g || !mapRef.current) return;  // a newer move superseded this
+            dataRef.current = g; setStale(false);
+            _paintHeat(); if (drawMarkersRef.current) drawMarkersRef.current();
+          })
+          .catch(function () { /* keep showing prior field; stale flag remains */ });
+      }, 480);
+    }
+    m.on("moveend zoomend", scheduleRefetch);
     setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _fit(); _paintHeat(); }, 60);
     [220, 480].forEach(function (d) { setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _paintHeat(); }, d); });
 
@@ -344,36 +376,39 @@ function TopoMap({ map, height = 280 }) {
       else if (isFinite(+d.lat0) && isFinite(+d.lon0)) { m.setView([+d.lat0, +d.lon0], 11); }
     }
     mapRef.current._fit = _fit;
-  }, [ready, usable]);
 
-  // re-fit + redraw + refresh town markers whenever the location (map) changes
-  React.useEffect(function () {
-    const m = mapRef.current; if (!m || !usable) return;
-    if (m._fit) m._fit();
-    if (m._paintHeat) m._paintHeat();
-    const LF = _grabLeaflet(), lg = markerRef.current;
-    if (LF && lg) {
+    // draw town labels from the CURRENT dataRef (called on prop change AND after a pan-refetch)
+    function drawMarkers() {
+      const d = dataRef.current, lg = markerRef.current; if (!d || !lg) return;
       lg.clearLayers();
       const accent = ((getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim()) || "#4f93e0";
-      const windU = (window.U && window.U.wind) || "KM/H";
-      const tempU = (window.U && window.U.temp) || "°C";
-      (map.pts || []).forEach(function (p) {
+      (d.pts || []).forEach(function (p) {
         if (!isFinite(+p.lat) || !isFinite(+p.lon)) return;
-        const html = '<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font:600 10px/1 Geist,system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,.9)">' +
+        const html = '<span style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font:600 10px/1 \'Hanken Grotesk\',system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,.9)">' +
           '<span style="width:' + (p.primary ? 8 : 6) + 'px;height:' + (p.primary ? 8 : 6) + 'px;background:' + (p.primary ? accent : "rgba(255,255,255,.92)") + ';border:' + (p.primary ? "1.5px solid #fff" : "1px solid rgba(0,0,0,.5)") + ';box-shadow:0 0 0 1px rgba(0,0,0,.4)"></span>' +
           (p.primary ? "" : '<span>' + p.name + '</span>') + '<b style="font-variant-numeric:tabular-nums">' + p.t + "°</b></span>";
-        const icon = LF.divIcon({ className: "wx-town", html: html, iconSize: null, iconAnchor: [4, 4] });
-        LF.marker([+p.lat, +p.lon], { icon: icon, interactive: false, keyboard: false }).addTo(lg);
+        LF.marker([+p.lat, +p.lon], { icon: LF.divIcon({ className: "wx-town", html: html, iconSize: null, iconAnchor: [4, 4] }), interactive: false, keyboard: false }).addTo(lg);
       });
-      const cur = (map.pts || []).find(function (p) { return p.primary; });
-      if (cur) LF.marker([+cur.lat, +cur.lon], { icon: LF.divIcon({ className: "wx-town", iconSize: null, iconAnchor: [4, 4], html: '<b style="font:700 11px/1 Geist,system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9)">' + cur.t + "°</b>" }), interactive: false }).addTo(lg);
     }
+    drawMarkersRef.current = drawMarkers;
+    drawMarkers();
+  }, [ready, usable]);
+
+  // when the active SITE changes (map prop), reset the view+data to that site and redraw
+  React.useEffect(function () {
+    const m = mapRef.current; if (!m || !usable) return;
+    reqRef.current++;                 // cancel any in-flight pan refetch from the previous site
+    dataRef.current = map; setStale(false);
+    if (m._fit) m._fit();
+    if (m._paintHeat) m._paintHeat();
+    if (drawMarkersRef.current) drawMarkersRef.current();
   }, [map]);
 
   // teardown
   React.useEffect(function () {
     return function () {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (refetchRef.current) clearTimeout(refetchRef.current);
       if (mapRef.current) { try { mapRef.current.remove(); } catch (e) {} mapRef.current = null; }
     };
   }, []);
@@ -384,7 +419,7 @@ function TopoMap({ map, height = 280 }) {
     <Panel pad={0} style={{ marginTop: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px 8px", borderBottom: "1px solid var(--line)" }}>
         <Micro>{L.flight.tempMap}</Micro>
-        <span className="mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", color: "var(--fg-faint)" }}>{L.flight.mapNote}</span>
+        <span className="mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", color: stale ? "var(--accent)" : "var(--fg-faint)" }}>{stale ? "UPDATING…" : L.flight.mapNote}</span>
       </div>
       {usable
         ? <div ref={wrapRef} style={{ width: "100%", height: height, background: "var(--row-fill)" }} />
