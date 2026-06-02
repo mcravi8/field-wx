@@ -221,6 +221,11 @@ const WeatherAPI = (function () {
   function fetchMajorTowns(lat, lon) { return fetchMajorTownsAt(lat, lon, MAP_HALF_KM); }
   async function fetchMajorTownsAt(lat, lon, radiusKm) {
     const radius = Math.min(300, Math.max(5, Math.round(radiusKm || MAP_HALF_KM)));
+    // town labels barely change → cache hard (1 day fresh, 7 days stale)
+    const tkey = "towns:" + (+lat).toFixed(3) + "," + (+lon).toFixed(3) + ":" + radius;
+    return wxCached(tkey, WXC_DAY, 7 * WXC_DAY, function () { return _fetchTownsAt(lat, lon, radius); });
+  }
+  async function _fetchTownsAt(lat, lon, radius) {
     const url = "https://secure.geonames.org/findNearbyPlaceNameJSON?lat=" + lat + "&lng=" + lon +
       "&radius=" + radius + "&maxRows=80&cities=cities1000&username=" + encodeURIComponent(GEONAMES_USERNAME);
     const j = await getJson(url, "geonames");
@@ -318,6 +323,11 @@ const WeatherAPI = (function () {
   async function elevationGridForBounds(south, west, north, east, gridN) {
     const N = Math.max(8, Math.min(40, gridN || 24));
     if (!(isFinite(south) && isFinite(west) && isFinite(north) && isFinite(east)) || north <= south || east <= west) return null;
+    // terrain never changes → cache hard (1 day fresh, 7 days stale); removes the elevation-call churn entirely
+    const ekey = "elev:" + south.toFixed(3) + "," + west.toFixed(3) + "," + north.toFixed(3) + "," + east.toFixed(3) + ":" + N;
+    return wxCached(ekey, WXC_DAY, 7 * WXC_DAY, function () { return _elevationGridFetch(south, west, north, east, N); });
+  }
+  async function _elevationGridFetch(south, west, north, east, N) {
     const lats = [], lons = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
       lats.push(+(north - (north - south) * r / (N - 1)).toFixed(4));   // row 0 = north
@@ -388,6 +398,47 @@ const WeatherAPI = (function () {
 
   function unitQS(u) { return "&temperature_unit=" + u.temperature_unit + "&wind_speed_unit=" + u.wind_speed_unit + "&precipitation_unit=" + u.precipitation_unit; }
   async function getJson(url, label) { const r = await fetch(url); if (!r.ok) throw new Error("Open-Meteo " + label + " " + r.status); return r.json(); }
+
+  // ---- localStorage response cache: a short FRESH window cuts duplicate calls (rate-limit relief),
+  //      and STALE-on-error serves the last good data instead of dropping the whole app to mock on a 429 ----
+  const WXC = "wxc:", WXC_MAX = 24, WXC_MIN = 60000, WXC_DAY = 86400000;
+  function _wxcEvict(target) {
+    try {
+      const ks = [];
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(WXC) === 0) ks.push(k); }
+      if (ks.length <= target) return;
+      ks.map(function (k) { let t = 0; try { t = (JSON.parse(localStorage.getItem(k)) || {}).t || 0; } catch (e) {} return { k: k, t: t }; })
+        .sort(function (a, b) { return a.t - b.t; })
+        .slice(0, ks.length - target).forEach(function (o) { try { localStorage.removeItem(o.k); } catch (e) {} });
+    } catch (e) {}
+  }
+  function wxcGet(key, maxAgeMs) {
+    try {
+      const raw = localStorage.getItem(WXC + key); if (!raw) return null;
+      const rec = JSON.parse(raw);
+      if (!rec || typeof rec.t !== "number") return null;
+      if (maxAgeMs != null && (Date.now() - rec.t) > maxAgeMs) return null;
+      return rec.data;
+    } catch (e) { return null; }
+  }
+  function wxcSet(key, data) {
+    try { localStorage.setItem(WXC + key, JSON.stringify({ t: Date.now(), data: data })); _wxcEvict(WXC_MAX); }
+    catch (e) { try { _wxcEvict(Math.floor(WXC_MAX / 2)); localStorage.setItem(WXC + key, JSON.stringify({ t: Date.now(), data: data })); } catch (_) {} }
+  }
+  // run an async producer behind the cache: serve fresh (< freshMs) without a call; on producer error,
+  // serve stale (< staleMs) if present; otherwise rethrow.
+  async function wxCached(key, freshMs, staleMs, producer) {
+    const fresh = wxcGet(key, freshMs);
+    if (fresh != null) return fresh;
+    try { const v = await producer(); wxcSet(key, v); return v; }
+    catch (e) {
+      const stale = wxcGet(key, staleMs);
+      if (stale != null) { try { console.warn("[FIELD WX] cached fallback (" + String(key).slice(0, 30) + "): " + (e && e.message)); } catch (_) {} return stale; }
+      throw e;
+    }
+  }
+  function _fullKey(lat, lon, override) { return "full:" + (+lat).toFixed(3) + "," + (+lon).toFixed(3) + ":" + (override || ""); }
+
   function forecastUrl(lat, lon, u) {
     return OM + "?latitude=" + lat + "&longitude=" + lon +
       "&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_direction_10m,wind_gusts_10m,relative_humidity_2m,surface_pressure,visibility,uv_index,cloud_cover,precipitation,weather_code,is_day,dew_point_2m" +
@@ -438,9 +489,11 @@ const WeatherAPI = (function () {
     return { core: core, tempmapPromise: tempmapPromise };
   }
   async function compose(lat, lon, override) {
-    const r = await composeCore(lat, lon, override);
-    r.core.flight.tempmap = await r.tempmapPromise;
-    return r.core;
+    return wxCached(_fullKey(lat, lon, override), 3 * WXC_MIN, WXC_DAY, async function () {
+      const r = await composeCore(lat, lon, override);
+      r.core.flight.tempmap = await r.tempmapPromise;
+      return r.core;
+    });
   }
   // Bulk current temp + condition for a LIST of sites in ONE Open-Meteo call (comma-separated coords),
   // so the Sites screen can preview every saved site's temperature cheaply. Returns { id: {temp, code, isDay} }.
@@ -452,18 +505,22 @@ const WeatherAPI = (function () {
       if (s && isFinite(+s.lat) && isFinite(+s.lon)) { lats.push((+s.lat).toFixed(4)); lons.push((+s.lon).toFixed(4)); ids.push(s.id); }
     }
     if (!lats.length) return {};
-    const url = OM + "?latitude=" + lats.join(",") + "&longitude=" + lons.join(",") +
-      "&current=temperature_2m,weather_code,is_day&temperature_unit=" + u.temperature_unit + "&timezone=auto";
-    const gj = await getJson(url, "sitescurrent");
-    const arr = Array.isArray(gj) ? gj : [gj];   // single coord → object; multiple → array
-    const out = {};
-    for (let i = 0; i < ids.length; i++) {
-      const c = arr[i] && arr[i].current;
-      if (c && c.temperature_2m != null && isFinite(+c.temperature_2m)) {
-        out[ids[i]] = { temp: Math.round(+c.temperature_2m), code: codeOf(intg(c.weather_code, 0)), isDay: c.is_day != null ? (c.is_day ? 1 : 0) : 1 };
+    const key = "sites:" + u.system + ":" + ids.slice().sort().join(",");
+    return wxCached(key, 5 * WXC_MIN, WXC_DAY, async function () {
+      const url = OM + "?latitude=" + lats.join(",") + "&longitude=" + lons.join(",") +
+        "&current=temperature_2m,weather_code,is_day&temperature_unit=" + u.temperature_unit + "&timezone=auto";
+      const gj = await getJson(url, "sitescurrent");
+      const arr = Array.isArray(gj) ? gj : [gj];   // single coord → object; multiple → array
+      const out = {};
+      for (let i = 0; i < ids.length; i++) {
+        const c = arr[i] && arr[i].current;
+        if (c && c.temperature_2m != null && isFinite(+c.temperature_2m)) {
+          out[ids[i]] = { temp: Math.round(+c.temperature_2m), code: codeOf(intg(c.weather_code, 0)), isDay: c.is_day != null ? (c.is_day ? 1 : 0) : 1 };
+        }
       }
-    }
-    return out;
+      if (!Object.keys(out).length) throw new Error("sitescurrent: no usable temps");   // don't cache an empty result → fall back to last good
+      return out;
+    });
   }
 
   return {
@@ -471,11 +528,21 @@ const WeatherAPI = (function () {
     // Fast path: emit core conditions immediately via onData(core), then patch in the temp-map grid
     // via onData({__patch:true, flight:{tempmap}}). Resolves once both have been delivered.
     getFast: async function (lat, lon, units, onData) {
-      const r = await composeCore(lat, lon, units);
-      onData(r.core);
-      const tm = await r.tempmapPromise;
-      onData({ __patch: true, flight: { tempmap: tm } });
-      return r.core;
+      const ck = _fullKey(lat, lon, units);
+      const fresh = wxcGet(ck, 3 * WXC_MIN);
+      if (fresh != null) { onData(fresh); return fresh; }   // recent → serve cached, no network
+      try {
+        const r = await composeCore(lat, lon, units);
+        onData(r.core);
+        const tm = await r.tempmapPromise;
+        onData({ __patch: true, flight: { tempmap: tm } });
+        wxcSet(ck, Object.assign({}, r.core, { flight: Object.assign({}, r.core.flight, { tempmap: tm }) }));
+        return r.core;
+      } catch (e) {
+        const stale = wxcGet(ck, WXC_DAY);   // 429/offline → last good real data beats mock
+        if (stale != null) { onData(stale); try { console.warn("[FIELD WX] cached weather fallback: " + (e && e.message)); } catch (_) {} return stale; }
+        throw e;
+      }
     },
     // refetch-on-pan: fresh current-conditions grid + town labels for the visible map bounds
     gridForBounds: function (south, west, north, east, system) { return gridForBounds(south, west, north, east, system); },
