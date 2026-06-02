@@ -641,7 +641,7 @@ function FlightSection({ flight, hourly, onNav }) {
       </div>
       <ShearPanel flight={flight} />
       <TopoMap map={flight.tempmap} />
-      <SoundingChart sounding={flight.sounding} blTop={flight.blTop} cbH={flight.cbH} />
+      <SoundingChart sounding={flight.sounding} blTop={flight.blTop} cbH={flight.cbH} thermalTop={flight.thermalTop} flight={flight} />
       <LocalFlow flight={flight} />
     </div>
   );
