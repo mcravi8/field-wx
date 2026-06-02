@@ -678,8 +678,9 @@ function FlightSection({ flight, hourly, onNav }) {
           </div>
         </div>
       ) : null}
-      <FlyStrip flight={flight} />
-      {/* pinned-point banner: shows which point the windgram + curva di stato reflect, with reset */}
+      {/* order (per request): map (temp/vento) → windgram → curva di stato → vento in quota → rest.
+          Tap the map to pin a point; the banner + windgram + curva di stato below reflect it. */}
+      <TopoMap map={flight.tempmap} onPick={onPick} />
       {(picked || picking) ? (
         <div className="wx-box" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--accent)", padding: "9px 12px", marginTop: 8 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -691,17 +692,15 @@ function FlightSection({ flight, hourly, onNav }) {
           {picked ? <button onClick={resetPick} className="mono" style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 10, letterSpacing: "0.08em", cursor: "pointer", flexShrink: 0 }}>{isIt ? "RIPRISTINA" : "RESET"}</button> : null}
         </div>
       ) : null}
-      {/* Windgram before Wind Aloft (per request) — reflects the tapped point when one is picked */}
       <Windgram wg={effWg} />
+      <SoundingChart sounding={effSnd} blTop={effBl} cbH={effCbH} thermalTop={effTop} flight={pf || flight} />
       <WindAloft flight={flight} />
+      <FlyStrip flight={flight} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <ThermalsPanel flight={flight} />
         <CeilingPanel flight={flight} />
       </div>
       <ShearPanel flight={flight} />
-      {/* tap the map to update the windgram + curva di stato for that exact point */}
-      <TopoMap map={flight.tempmap} onPick={onPick} />
-      <SoundingChart sounding={effSnd} blTop={effBl} cbH={effCbH} thermalTop={effTop} flight={pf || flight} />
       <LocalFlow flight={flight} />
     </div>
   );
