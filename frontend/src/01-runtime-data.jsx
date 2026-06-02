@@ -442,6 +442,29 @@ const WeatherAPI = (function () {
     r.core.flight.tempmap = await r.tempmapPromise;
     return r.core;
   }
+  // Bulk current temp + condition for a LIST of sites in ONE Open-Meteo call (comma-separated coords),
+  // so the Sites screen can preview every saved site's temperature cheaply. Returns { id: {temp, code, isDay} }.
+  async function currentForSites(sites, system) {
+    if (!Array.isArray(sites) || !sites.length) return {};
+    const u = (system === "imperial") ? IMPERIAL : METRIC;
+    const lats = [], lons = [], ids = [];
+    for (const s of sites) {
+      if (s && isFinite(+s.lat) && isFinite(+s.lon)) { lats.push((+s.lat).toFixed(4)); lons.push((+s.lon).toFixed(4)); ids.push(s.id); }
+    }
+    if (!lats.length) return {};
+    const url = OM + "?latitude=" + lats.join(",") + "&longitude=" + lons.join(",") +
+      "&current=temperature_2m,weather_code,is_day&temperature_unit=" + u.temperature_unit + "&timezone=auto";
+    const gj = await getJson(url, "sitescurrent");
+    const arr = Array.isArray(gj) ? gj : [gj];   // single coord → object; multiple → array
+    const out = {};
+    for (let i = 0; i < ids.length; i++) {
+      const c = arr[i] && arr[i].current;
+      if (c && c.temperature_2m != null && isFinite(+c.temperature_2m)) {
+        out[ids[i]] = { temp: Math.round(+c.temperature_2m), code: codeOf(intg(c.weather_code, 0)), isDay: c.is_day != null ? (c.is_day ? 1 : 0) : 1 };
+      }
+    }
+    return out;
+  }
 
   return {
     getFull: function (lat, lon, units) { return compose(lat, lon, units); },
@@ -469,6 +492,7 @@ const WeatherAPI = (function () {
         return view ? { flight: view.flight, hourly: view.hourly, units: r.units, lat: +lat, lon: +lon } : null;
       });
     },
+    currentForSites: function (sites, system) { return currentForSites(sites, system); },
   };
 })();
 /* The API delivers values already in the region's units (metric, or imperial for the US)

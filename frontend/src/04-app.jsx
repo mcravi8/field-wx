@@ -128,7 +128,7 @@ function App() {
   if (nav === "now") screen = <HomeNow m={mView} hourly={hourly} onNav={goNav} view={view} flight={flight} onView={setView} />;
   else if (nav === "hourly") screen = <ScreenHourly m={mView} hourly={hourly} />;
   else if (nav === "week") screen = <ScreenWeek />;
-  else if (nav === "sites") screen = <ScreenSites sites={sites} activeId={activeSite.id} onSelect={selectSite} onAdd={addSite} onDelete={deleteSite} onReorder={reorderSites} />;
+  else if (nav === "sites") screen = <ScreenSites sites={sites} activeId={activeSite.id} units={unitsSystem} onSelect={selectSite} onAdd={addSite} onDelete={deleteSite} onReorder={reorderSites} />;
   else screen = <ScreenSys lang={lang} onLang={setLang} appearance={appearance} onAppearance={setAppearance} view={view} onView={setView} units={unitsSystem} onUnits={setUnitsPref} />;
 
   const scrClass = navDir === "fwd" ? "scr-r" : navDir === "back" ? "scr-l" : "scr-fade";

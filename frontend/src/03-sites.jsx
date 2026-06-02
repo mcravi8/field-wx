@@ -72,6 +72,21 @@ function ScreenSites(props) {
   var listRef = React.useRef(null);
   var movedRef = React.useRef(false);
 
+  // preview each saved site's current temperature — ONE bulk Open-Meteo call; refetch when the
+  // site list or unit system changes; a request id drops superseded responses
+  var tpS = useState({}); var temps = tpS[0], setTemps = tpS[1];
+  var tempSeqRef = React.useRef(0);
+  var siteKey = sites.map(function (s) { return s.id; }).sort().join(",");   // order-independent: reordering ≠ refetch
+  var sysPref = (props.units === "imperial") ? "imperial" : "metric";        // React-tracked unit (not global window.U)
+  React.useEffect(function () {
+    if (typeof WeatherAPI === "undefined" || !WeatherAPI || !WeatherAPI.currentForSites || !sites.length) return;
+    var seq = ++tempSeqRef.current;
+    WeatherAPI.currentForSites(sites, sysPref).then(function (mp) {
+      if (seq !== tempSeqRef.current) return;
+      setTemps(mp || {});
+    }).catch(function (e) { try { console.warn("[FIELD WX] site temps unavailable:", e && e.message); } catch (_) {} });
+  }, [siteKey, sysPref]);
+
   var clearLP = function () { if (lpRef.current) { clearTimeout(lpRef.current); lpRef.current = null; } };
 
   var runSearch = function (ev) {
@@ -298,7 +313,17 @@ function ScreenSites(props) {
                     ) : null}
                     <span className="mono" style={{ fontSize: 11, letterSpacing: "0.04em", color: "var(--fg-faint)" }}>{wxFmtCoord(s.lat, s.lon)}</span>
                   </div>
-                  <span className="mono" style={{ fontSize: 15, color: "var(--fg-dim)", flexShrink: 0, opacity: 0.5 }}>{"›"}</span>
+                  {temps[s.id] ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      <span className="mono" style={{ fontSize: 10, letterSpacing: "0.06em", color: "var(--fg-faint)" }}>{temps[s.id].code}</span>
+                      <div style={{ display: "flex", alignItems: "flex-start" }}>
+                        <span className="mono" style={{ fontSize: 26, fontWeight: 300, lineHeight: 1, color: "var(--fg)", fontVariantNumeric: "tabular-nums" }}>{temps[s.id].temp}</span>
+                        <span className="mono" style={{ fontSize: 13, color: "var(--fg-dim)", marginTop: 1 }}>°</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="mono" style={{ fontSize: 15, color: "var(--fg-dim)", flexShrink: 0, opacity: 0.5 }}>{"›"}</span>
+                  )}
                 </div>
               </div>
             );
