@@ -170,6 +170,21 @@ html[data-theme="light"] { --stage: #dce5ef; }
 .wx-shell[data-appearance="light"] { --seg-on-fg: #fff; }
 .wx-seg-pill { background: rgba(255,255,255,0.92); box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
 .wx-shell[data-appearance="light"] .wx-seg-pill { background: #1b2430; }
+
+/* ===== rounded + de-blued cards =====
+   Any element with an inline light-blue accent OUTLINE → soften to a neutral hairline + round +
+   clip. Kills the blue card borders on AlertBanner / StatusStrip / FlyStrip / Code / toggle / active
+   site card, while leaving accent text + signal dots intact. */
+.wx-shell [style*="solid var(--accent)"] {
+  border-color: var(--card-line) !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+}
+/* clip rounded glass cards so inner content (windgram grid, map tiles, tables) follows the corners */
+.wx-glass { overflow: hidden; }
+/* tab-bar active pill — theme-adaptive subtle highlight */
+.wx-tab-on { background: rgba(255,255,255,0.12); }
+.wx-shell[data-appearance="light"] .wx-tab-on { background: rgba(27,36,48,0.06); }
 `;
 
 (function () {

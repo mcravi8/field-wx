@@ -165,14 +165,20 @@ function WxTabBar({ active, onNav }) {
     { id: "now", label: (L.tabsCalm && L.tabsCalm.now) || "Now" },
     { id: "sys", label: (L.tabsCalm && L.tabsCalm.sys) || "Settings" },
   ];
+  const ICON = function (kind) {
+    const p = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+    if (kind === "sites") return (<svg {...p}><path d="M12 21s-7-6.4-7-11a7 7 0 0 1 14 0c0 4.6-7 11-7 11z" /><circle cx="12" cy="10" r="2.4" /></svg>);
+    if (kind === "now") return (<svg {...p}><circle cx="12" cy="12" r="7" /><line x1="12" y1="2.5" x2="12" y2="5.2" /><line x1="12" y1="18.8" x2="12" y2="21.5" /><line x1="2.5" y1="12" x2="5.2" y2="12" /><line x1="18.8" y1="12" x2="21.5" y2="12" /></svg>);
+    return (<svg {...p}><line x1="4" y1="8.5" x2="20" y2="8.5" /><line x1="4" y1="15.5" x2="20" y2="15.5" /><circle cx="9.5" cy="8.5" r="2.4" fill="currentColor" stroke="none" /><circle cx="14.5" cy="15.5" r="2.4" fill="currentColor" stroke="none" /></svg>);
+  };
   return (
-    <div style={{ flexShrink: 0, height: 58, display: "flex", borderTop: "1px solid var(--hair)", position: "relative", zIndex: 3, background: "var(--chrome)", backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)" }}>
+    <div style={{ flexShrink: 0, height: 64, display: "flex", alignItems: "center", gap: 6, padding: "0 12px", borderTop: "1px solid var(--hair)", position: "relative", zIndex: 3, background: "var(--chrome)", backdropFilter: "blur(20px) saturate(1.3)", WebkitBackdropFilter: "blur(20px) saturate(1.3)" }}>
       {tabs.map((tb) => {
         const on = tb.id === active;
         return (
-          <button key={tb.id} onClick={() => onNav(tb.id)} style={{ flex: 1, position: "relative", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, padding: 0 }}>
-            <span style={{ position: "absolute", top: 0, width: 22, height: 3, borderRadius: 2, background: on ? "var(--accent)" : "transparent" }} />
-            <span style={{ fontSize: 13, letterSpacing: "0.01em", fontWeight: on ? 600 : 400, color: on ? "var(--txt)" : "var(--faint)" }}>{tb.label}</span>
+          <button key={tb.id} onClick={() => onNav(tb.id)} className={on ? "wx-tab-on" : ""} style={{ flex: 1, background: on ? undefined : "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, padding: "8px 0", borderRadius: 16, color: on ? "var(--txt)" : "var(--faint)" }}>
+            {ICON(tb.id)}
+            <span style={{ fontSize: 11, letterSpacing: "0.02em", fontWeight: on ? 600 : 400 }}>{tb.label}</span>
           </button>
         );
       })}
