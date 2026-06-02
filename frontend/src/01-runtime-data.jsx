@@ -460,6 +460,15 @@ const WeatherAPI = (function () {
     getNow: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { current: r.current, flight: r.flight, units: r.units }; }); },
     getWeek: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { daily: r.daily, units: r.units }; }); },
     getAltitude: function (lat, lon, units) { return compose(lat, lon, units).then(function (r) { return { altitudeWinds: r.flight.altitudeWinds, windgram: r.flight.windgram, thermals: { thermalBase: r.flight.thermalBase, thermalTop: r.flight.thermalTop, thermalStrength: r.flight.thermalStrength, boundaryLayer: r.flight.boundaryLayer }, units: r.units }; }); },
+    // pick-a-point: full live flight readout for an arbitrary tapped lat/lon, run through the same
+    // adapter pipeline as the active site so the Windgram + Curva di stato (sounding) shapes match
+    // exactly what those components consume. Returns the adapted flight + a few header bits.
+    pointFlight: function (lat, lon, units) {
+      return compose(lat, lon, units).then(function (r) {
+        var view = _buildLiveView(r);   // adapts windgram (_adaptWindgram), sounding, cbH/blTop/thermalTop
+        return view ? { flight: view.flight, hourly: view.hourly, units: r.units, lat: +lat, lon: +lon } : null;
+      });
+    },
   };
 })();
 /* The API delivers values already in the region's units (metric, or imperial for the US)

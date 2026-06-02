@@ -258,7 +258,7 @@ function _msContours(g, levels) {
   }
   return out;
 }
-function TopoMap({ map, height = 280 }) {
+function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
   const wrapRef = React.useRef(null);
   const mapRef = React.useRef(null);     // Leaflet map instance
   const heatRef = React.useRef(null);    // canvas for the temperature field
@@ -273,6 +273,8 @@ function TopoMap({ map, height = 280 }) {
   const elevBackoffRef = React.useRef(0); // consecutive elevation-fetch failures (rate-limit backoff)
   const elevRef = React.useRef(null);    // computed contours { contours, majors, step, labels }
   const drawMarkersRef = React.useRef(function () {}); // redraw town labels for current dataRef
+  const pickRef = React.useRef(null);    // Leaflet marker for the tapped "pick-a-point" pin
+  const onPickRef = React.useRef(onPick); onPickRef.current = onPick;
   const [stale, setStale] = React.useState(false);     // viewing area lacks fresh data yet
   const [contourStep, setContourStep] = React.useState(0); // elevation interval (m) for the legend
   const [ready, setReady] = React.useState(!!_grabLeaflet());
@@ -354,6 +356,22 @@ function TopoMap({ map, height = 280 }) {
       }, 480);
     }
     m.on("moveend zoomend", scheduleRefetch);
+    // pick-a-point: tap the map → report the lat/lon up so the Windgram + Curva di stato recompute for
+    // that exact spot. Leaflet fires "click" only on a clean tap (not a drag/pan), so this is pan-safe.
+    m.on("click", function (e) {
+      if (!e || !e.latlng) return;
+      var la = e.latlng.lat, lo = e.latlng.lng;
+      // drop / move the pin marker
+      try {
+        if (pickRef.current) { pickRef.current.setLatLng([la, lo]); }
+        else {
+          var icon = LF.divIcon({ className: "wx-pin", iconSize: null, iconAnchor: [7, 14],
+            html: '<span style="display:block;width:14px;height:14px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5)"></span>' });
+          pickRef.current = LF.marker([la, lo], { icon: icon, interactive: false, keyboard: false }).addTo(m);
+        }
+      } catch (err) {}
+      if (onPickRef.current) onPickRef.current(la, lo);
+    });
     setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _fit(); _paintHeat(); _refetchElev(); }, 60);
     [220, 480].forEach(function (d) { setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _paintHeat(); _paintContours(); }, d); });
 
@@ -602,6 +620,29 @@ function TopoMap({ map, height = 280 }) {
    temp/wind map panel is the interactive TopoMap. Sibling panels are the vendored globals. */
 function FlightSection({ flight, hourly, onNav }) {
   const grid12 = Array.isArray(hourly) ? hourly.slice(0, 12) : [];
+  // pick-a-point: tapping the map fetches a full flight readout for that lat/lon; the Windgram and
+  // Curva di stato (sounding) then show THAT point instead of the active site. Reset returns to the site.
+  const pkS = React.useState(null); const picked = pkS[0], setPicked = pkS[1];      // { lat, lon, flight } | null
+  const ldS = React.useState(false); const picking = ldS[0], setPicking = ldS[1];
+  const pickReqRef = React.useRef(0);
+  const onPick = React.useCallback(function (la, lo) {
+    if (!WeatherAPI || !WeatherAPI.pointFlight) return;
+    const id = ++pickReqRef.current;
+    setPicking(true);
+    const sys = (window.U && window.U.temp === "°F") ? "imperial" : "metric";
+    WeatherAPI.pointFlight(la, lo, sys).then(function (r) {
+      if (id !== pickReqRef.current) return;              // a newer tap superseded this
+      setPicking(false);
+      if (r && r.flight) setPicked({ lat: la, lon: lo, flight: r.flight });
+    }).catch(function () { if (id === pickReqRef.current) setPicking(false); });
+  }, []);
+  const resetPick = function () { pickReqRef.current++; setPicked(null); setPicking(false); };
+  const pf = picked && picked.flight;
+  const effWg = (pf && pf.windgram) || flight.windgram;                 // windgram for the active point
+  const effSnd = pf ? pf.sounding : flight.sounding;                     // sounding (curva di stato)
+  const effCbH = pf ? pf.cbH : flight.cbH, effBl = pf ? pf.blTop : flight.blTop, effTop = pf ? pf.thermalTop : flight.thermalTop;
+  const isIt = !!(window.L && window.L.tabs && window.L.tabs.now === "ORA");
+  const fmtPt = function (la, lo) { return Math.abs(la).toFixed(3) + "°" + (la >= 0 ? "N" : "S") + " " + Math.abs(lo).toFixed(3) + "°" + (lo >= 0 ? "E" : "W"); };
   return (
     <div style={{ marginTop: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
@@ -632,16 +673,29 @@ function FlightSection({ flight, hourly, onNav }) {
         </div>
       ) : null}
       <FlyStrip flight={flight} />
-      {/* Windgram before Wind Aloft (per request) */}
-      <Windgram wg={flight.windgram} />
+      {/* pinned-point banner: shows which point the windgram + curva di stato reflect, with reset */}
+      {(picked || picking) ? (
+        <div className="wx-box" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--accent)", padding: "9px 12px", marginTop: 8 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50% 50% 50% 0", transform: "rotate(-45deg)", background: "var(--accent)", flexShrink: 0 }} />
+            <span className="mono" style={{ fontSize: 10, letterSpacing: "0.04em", color: "var(--fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {picking ? (isIt ? "PUNTO… " : "POINT… ") : (isIt ? "PUNTO · " : "POINT · ") + (picked ? fmtPt(picked.lat, picked.lon) : "")}
+            </span>
+          </span>
+          {picked ? <button onClick={resetPick} className="mono" style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 10, letterSpacing: "0.08em", cursor: "pointer", flexShrink: 0 }}>{isIt ? "RIPRISTINA" : "RESET"}</button> : null}
+        </div>
+      ) : null}
+      {/* Windgram before Wind Aloft (per request) — reflects the tapped point when one is picked */}
+      <Windgram wg={effWg} />
       <WindAloft flight={flight} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <ThermalsPanel flight={flight} />
         <CeilingPanel flight={flight} />
       </div>
       <ShearPanel flight={flight} />
-      <TopoMap map={flight.tempmap} />
-      <SoundingChart sounding={flight.sounding} blTop={flight.blTop} cbH={flight.cbH} thermalTop={flight.thermalTop} flight={flight} />
+      {/* tap the map to update the windgram + curva di stato for that exact point */}
+      <TopoMap map={flight.tempmap} onPick={onPick} />
+      <SoundingChart sounding={effSnd} blTop={effBl} cbH={effCbH} thermalTop={effTop} flight={pf || flight} />
       <LocalFlow flight={flight} />
     </div>
   );
