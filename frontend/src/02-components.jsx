@@ -646,6 +646,7 @@ function FlightSection({ flight, hourly, onNav }) {
   const pf = picked && picked.flight;
   const effWg = (pf && pf.windgram) || flight.windgram;                 // windgram for the active point
   const effSnd = pf ? pf.sounding : flight.sounding;                     // sounding (curva di stato)
+  const effSeries = pf ? pf.soundingSeries : flight.soundingSeries;      // per-hour frames for the hour scrubber
   const effCbH = pf ? pf.cbH : flight.cbH, effBl = pf ? pf.blTop : flight.blTop, effTop = pf ? pf.thermalTop : flight.thermalTop;
   const isIt = !!(window.L && window.L.tabs && window.L.tabs.now === "ORA");
   const fmtPt = function (la, lo) { return Math.abs(la).toFixed(3) + "°" + (la >= 0 ? "N" : "S") + " " + Math.abs(lo).toFixed(3) + "°" + (lo >= 0 ? "E" : "W"); };
@@ -693,7 +694,7 @@ function FlightSection({ flight, hourly, onNav }) {
         </div>
       ) : null}
       <Windgram wg={effWg} />
-      <SoundingChart sounding={effSnd} blTop={effBl} cbH={effCbH} thermalTop={effTop} flight={pf || flight} />
+      <SoundingChart sounding={effSnd} series={effSeries} blTop={effBl} cbH={effCbH} thermalTop={effTop} flight={pf || flight} />
       <WindAloft flight={flight} />
       <FlyStrip flight={flight} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

@@ -8,14 +8,28 @@
        longer warmer than its surroundings → top of usable lift);
      • the CONDENSATION / CLOUD BASE level (LCL);
      • a couple of faint dry-adiabat reference slopes for context.
+   Plus, when a per-hour `series` is supplied: an HOUR SCRUBBER (slide / step through
+   the day and watch the whole sounding evolve) and a full LEGEND of every line.
    Keeps the original temp (solid) + dewpoint (dashed) curves, BL shading and styling.
    Overrides the vendored global SoundingChart at runtime (inline script runs last),
    same pattern as the TopBar / HomeNow / ScreenSites / Atmosphere overrides.
    Reference frame is AGL (alts[] are metres above ground, matching cbH/blTop).
    ============================================================================ */
-function SoundingChart({ sounding, blTop, cbH, thermalTop, flight }) {
-  if (!sounding || !Array.isArray(sounding.alts)) return null;
-  const alts = sounding.alts, temps = sounding.temps, dews = sounding.dews;
+function SoundingChart({ sounding, series, blTop, cbH, thermalTop, flight }) {
+  // hooks first (before any early return) — the scrubber's selected hour
+  const hasSeries = !!(series && Array.isArray(series.frames) && series.frames.length);
+  const [hr, setHr] = React.useState((series && series.current) || 0);
+  const idx = hasSeries ? Math.max(0, Math.min(hr, series.frames.length - 1)) : 0;
+  const frame = hasSeries ? series.frames[idx] : null;
+
+  // resolved values for the displayed hour (series frame overrides the single-shot props)
+  const alts = hasSeries ? series.alts : (sounding && sounding.alts);
+  const temps = hasSeries ? frame.temps : (sounding && sounding.temps);
+  const dews = hasSeries ? frame.dews : (sounding && sounding.dews);
+  const _cbH = hasSeries ? frame.cbH : cbH;
+  const _blTop = hasSeries ? frame.blTop : blTop;
+  if (!alts || !Array.isArray(alts) || !temps || !dews) return null;
+
   const W = 300, H = 188, padL = 36, padR = 14, padT = 10, padB = 22;
   const maxAlt = 3500;
   const DRY = 9.8 / 1000;     // dry adiabatic lapse  °C per metre
@@ -34,7 +48,7 @@ function SoundingChart({ sounding, blTop, cbH, thermalTop, flight }) {
     return temps[temps.length - 1];
   };
   // ---- parcel temperature: dry adiabat from the surface up to the LCL, moist above it ----
-  const lcl = (cbH != null && isFinite(+cbH) && +cbH > 0) ? +cbH : null;
+  const lcl = (_cbH != null && isFinite(+_cbH) && +_cbH > 0) ? +_cbH : null;
   const tSfc = temps[0];
   const parcelT = function (a) {
     if (lcl == null || a <= lcl) return tSfc - DRY * a;          // below cloud base → dry
@@ -64,15 +78,42 @@ function SoundingChart({ sounding, blTop, cbH, thermalTop, flight }) {
   const unitT = (window.U && window.U.temp) || "°C";
   const titleTxt = isIt ? "CURVA DI STATO" : (F.sounding || "SOUNDING");
 
+  // ---- hour scrubber label ----
+  const pad2 = function (n) { return String(n).padStart(2, "0"); };
+  const hourTxt = hasSeries ? (pad2(series.hours[idx]) + ":00") : "";
+  const relTxt = hasSeries ? (idx === 0 ? (isIt ? "ORA" : "NOW") : "+" + idx + "h") : "";
+  const step = function (d) { setHr(Math.max(0, Math.min(series.frames.length - 1, idx + d))); };
+  const stepBtn = { background: "none", border: "1px solid var(--line)", borderRadius: 7, color: "var(--fg-dim)", width: 24, height: 22, lineHeight: 1, fontSize: 13, cursor: "pointer", flexShrink: 0, padding: 0 };
+
+  // ---- legend rows: [label, color, dashed]  (color "shade" = filled BL swatch) ----
+  const LEG = isIt
+    ? [["AMBIENTE", "var(--fg)", false], ["RUGIADA", "var(--accent)", true], ["PARTICELLA", "#e6a23c", false], ["BASE NUBI", "var(--accent)", true], ["CIMA TERM.", "#e6a23c", true], ["STRATO CONV.", "shade", false]]
+    : [["AMBIENT", "var(--fg)", false], ["DEWPOINT", "var(--accent)", true], ["PARCEL", "#e6a23c", false], ["CLOUD BASE", "var(--accent)", true], ["THERMAL TOP", "#e6a23c", true], ["CONV. LAYER", "shade", false]];
+
   return (
     <Panel pad={0} style={{ marginTop: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px 6px" }}>
         <Micro>{titleTxt}</Micro>
         <span className="mono" style={{ fontSize: 8, letterSpacing: "0.08em", color: "var(--fg-faint)" }}>{isIt ? "AMBIENTE · PARTICELLA" : "AMBIENT · PARCEL"}</span>
       </div>
+
+      {/* hour scrubber — slide or step to watch the sounding evolve through the day */}
+      {hasSeries && series.frames.length > 1 ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 12px 8px" }}>
+          <button onClick={function () { step(-1); }} className="mono" style={stepBtn} aria-label="previous hour">‹</button>
+          <input type="range" min={0} max={series.frames.length - 1} value={idx} step={1}
+            onChange={function (e) { setHr(+e.target.value); }}
+            style={{ flex: 1, accentColor: "var(--accent)", height: 18, cursor: "pointer" }} />
+          <button onClick={function () { step(1); }} className="mono" style={stepBtn} aria-label="next hour">›</button>
+          <span className="mono" style={{ flexShrink: 0, minWidth: 64, textAlign: "right", fontSize: 11, letterSpacing: "0.04em", color: "var(--fg)" }}>
+            {hourTxt}<span style={{ color: "var(--accent)", marginLeft: 4 }}>{relTxt}</span>
+          </span>
+        </div>
+      ) : null}
+
       <svg width="100%" viewBox={"0 0 " + W + " " + H} style={{ display: "block" }}>
         {/* convective (boundary) layer shading */}
-        {blTop > 0 ? <rect x={padL} y={yA(Math.min(blTop, maxAlt))} width={W - padL - padR} height={yA(0) - yA(Math.min(blTop, maxAlt))} fill="var(--accent)" opacity="0.07" /> : null}
+        {_blTop > 0 ? <rect x={padL} y={yA(Math.min(_blTop, maxAlt))} width={W - padL - padR} height={yA(0) - yA(Math.min(_blTop, maxAlt))} fill="var(--accent)" opacity="0.07" /> : null}
         {/* altitude gridlines + labels */}
         {[0, 1000, 2000, 3000].map(function (a) {
           return (
@@ -108,9 +149,23 @@ function SoundingChart({ sounding, blTop, cbH, thermalTop, flight }) {
         {temps.map(function (v, i) { return <rect key={i} x={xT(v) - 1.5} y={yA(alts[i]) - 1.5} width="3" height="3" fill="var(--fg)" />; })}
         {/* PARCEL ASCENT curve (the curva di stato reading line) */}
         <polyline points={parcelPts.join(" ")} fill="none" stroke="#e6a23c" strokeWidth="1.7" opacity="0.95" />
-        {/* legend */}
-        <text x={W - padR} y={H - 6} textAnchor="end" fontFamily="'Geist Mono', monospace" fontSize="7.5" fill="var(--fg-faint)">{(F.temp || "TEMP") + " ─  " + (F.dew || "DEW") + " ┄  " + (isIt ? "PART." : "PARCEL") + " ─ " + unitT}</text>
       </svg>
+
+      {/* legend — what each line/level means */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px", padding: "4px 12px 11px" }}>
+        {LEG.map(function (it, i) {
+          const label = it[0], color = it[1], dash = it[2];
+          return (
+            <span key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              {color === "shade"
+                ? <span style={{ width: 12, height: 8, background: "var(--accent)", opacity: 0.18, flexShrink: 0 }} />
+                : <span style={{ width: 13, height: 0, flexShrink: 0, borderTop: "2px " + (dash ? "dashed" : "solid") + " " + color }} />}
+              <span className="mono" style={{ fontSize: 7.5, letterSpacing: "0.06em", color: "var(--fg-dim)" }}>{label}</span>
+            </span>
+          );
+        })}
+        <span className="mono" style={{ marginLeft: "auto", fontSize: 7.5, letterSpacing: "0.06em", color: "var(--fg-faint)" }}>{unitT}</span>
+      </div>
     </Panel>
   );
 }

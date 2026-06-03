@@ -184,6 +184,29 @@ const WeatherAPI = (function () {
     const galts = [0, 500, 1000, 1500, 2000, 2500, 3000, 3500];
     return { alts: galts, temps: galts.map(function (g) { return Math.round(interp(elevation + g, "t")); }), dews: galts.map(function (g) { return Math.round(interp(elevation + g, "d")); }) };
   }
+  // ---- per-hour sounding series for the Curva di stato hour scrubber ----
+  // One frame per hour (temps/dews + that hour's cloud base [LCL, AGL] and boundary-layer top),
+  // over the same forward window the windgram shows, so the two panels share an hour axis.
+  function buildSoundingSeries(alt, forecast, elevation, hours) {
+    hours = hours || 13;
+    const fh = (forecast && forecast.hourly) || {};
+    const times = arrf(fh, "time");
+    if (!times.length) return null;
+    const start = findCurrentHourIndex(forecast);
+    const count = Math.min(hours, Math.max(1, times.length - start));
+    const t2 = arrf(fh, "temperature_2m"), d2 = arrf(fh, "dew_point_2m"), blh = arrf(fh, "boundary_layer_height");
+    const galts = [0, 500, 1000, 1500, 2000, 2500, 3000, 3500];
+    const frames = [], hourList = [];
+    for (let i = 0; i < count; i++) {
+      const k = start + i;
+      const snd = buildSounding(alt, forecast, elevation, k);
+      frames.push({ temps: snd.temps, dews: snd.dews,
+        cbH: thermalBaseM(num(at(t2, k), 15), num(at(d2, k), 8), 0),   // LCL height, AGL — matches the sounding axis
+        blTop: Math.round(num(at(blh, k), 0)) });
+      hourList.push(parseHour(times[k]));
+    }
+    return { current: 0, alts: galts, hours: hourList, frames: frames };
+  }
   // ---- real per-hour windgram grid: 9 altitude bands (surface..4000m) x 24 hours ----
   function transformWindgram(alt, forecast, hours) {
     hours = hours || 24;
@@ -495,6 +518,7 @@ const WeatherAPI = (function () {
     const flight = assessFlight(mCur, mHourly, ctx);
     flight.windgram = transformWindgram(alt, forecast, 24);
     flight.sounding = buildSounding(alt, forecast, (forecast && forecast.elevation) || 0, idx);
+    flight.soundingSeries = buildSoundingSeries(alt, forecast, (forecast && forecast.elevation) || 0, 13);
     flight.tempmap = singlePointMap(current, lat, lon);   // instant placeholder; replaced by the grid patch
     const core = { current: current, hourly: hourly, daily: daily, flight: flight, units: u.units, isNight: computeIsNight(forecast) };
     const tempmapPromise = fetchTempmap(lat, lon, idx, current, u).catch(function () { return singlePointMap(current, lat, lon); });
@@ -708,6 +732,7 @@ function _adaptFlight(resp, key, system) {
     if (fl.valley) base.valley = fl.valley;
     base.conv = "\u2014"; // convergence needs a mesoscale/terrain wind-field gradient; not derivable from a point forecast
     if (fl.sounding) base.sounding = fl.sounding;
+    if (fl.soundingSeries) base.soundingSeries = fl.soundingSeries;
     if (fl.tempmap) base.tempmap = fl.tempmap;
     if (fl.windgram) { var awg = _adaptWindgram(fl.windgram); if (awg) base.windgram = awg; }
     return base;
