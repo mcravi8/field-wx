@@ -238,7 +238,8 @@ function ScreenSites(props) {
           </svg>
           <input value={q} onChange={function (e) { setQ(e.target.value); }}
             placeholder={C("Search for a place…", "Cerca un luogo…")}
-            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--fg)", fontSize: 14, letterSpacing: "0.01em" }} />
+            /* 16px so iOS Safari doesn't auto-zoom the page when the field is focused (it zooms any input < 16px). */
+            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--fg)", fontSize: 16, letterSpacing: "0.01em" }} />
           {busy
             ? <span style={{ fontSize: 12, color: "var(--fg-faint)" }}>{"…"}</span>
             : (q ? <button type="submit" style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>{T("go", "Go")}</button> : null)}
