@@ -518,7 +518,7 @@ const WeatherAPI = (function () {
     const flight = assessFlight(mCur, mHourly, ctx);
     flight.windgram = transformWindgram(alt, forecast, 24);
     flight.sounding = buildSounding(alt, forecast, (forecast && forecast.elevation) || 0, idx);
-    flight.soundingSeries = buildSoundingSeries(alt, forecast, (forecast && forecast.elevation) || 0, 13);
+    flight.soundingSeries = buildSoundingSeries(alt, forecast, (forecast && forecast.elevation) || 0, 24);
     flight.tempmap = singlePointMap(current, lat, lon);   // instant placeholder; replaced by the grid patch
     const core = { current: current, hourly: hourly, daily: daily, flight: flight, units: u.units, isNight: computeIsNight(forecast) };
     const tempmapPromise = fetchTempmap(lat, lon, idx, current, u).catch(function () { return singlePointMap(current, lat, lon); });
@@ -683,7 +683,7 @@ function _adaptWeek(daily) {
 }
 function _adaptWindgram(cw) {
   if (!cw || !Array.isArray(cw.grid) || !Array.isArray(cw.levels) || !cw.grid.length) return null;
-  var start = Math.max(0, cw.current || 0), end = Math.min(cw.hours.length, start + 13), idxs = [];
+  var start = Math.max(0, cw.current || 0), end = Math.min(cw.hours.length, start + 24), idxs = []; // next 24 h (horizontally scrollable)
   for (var i = start; i < end; i++) idxs.push(i);
   var bands = cw.levels.slice().reverse();
   var rows = bands.map(function (b) { var li = cw.levels.indexOf(b); return idxs.map(function (hi) { var c = cw.grid[li][hi]; return { spd: c.speed, deg: c.dirDeg }; }); });
