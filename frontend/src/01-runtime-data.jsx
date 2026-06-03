@@ -454,15 +454,25 @@ const WeatherAPI = (function () {
       "&temperature_unit=" + u.temperature_unit + "&wind_speed_unit=" + u.wind_speed_unit + "&timezone=auto";
   }
 
+  // Night = before sunrise, OR a short while AFTER sunset (dusk lingers, then it's night).
+  // Evaluated against the LIVE wall clock — not the forecast's (possibly cached/rounded)
+  // current.time — so it flips on schedule rather than lagging the last fetch.
+  const DUSK_BUFFER_MS = 25 * 60 * 1000; // night settles ~25 min past sunset
   function computeIsNight(forecast) {
     try {
-      const cur = forecast && forecast.current && forecast.current.time;
       const d = (forecast && forecast.daily) || {};
-      if (!cur || !Array.isArray(d.time) || !Array.isArray(d.sunrise) || !Array.isArray(d.sunset)) return false;
-      let i = d.time.indexOf(cur.slice(0, 10)); if (i < 0) i = 0;
+      if (!Array.isArray(d.time) || !Array.isArray(d.sunrise) || !Array.isArray(d.sunset)) return false;
+      const offMs = (forecast && isFinite(+forecast.utc_offset_seconds) ? +forecast.utc_offset_seconds : 0) * 1000;
+      const nowMs = Date.now();
+      const localDay = new Date(nowMs + offMs).toISOString().slice(0, 10); // today, in the site's timezone
+      let i = d.time.indexOf(localDay); if (i < 0) i = 0;
       const sr = d.sunrise[i], ss = d.sunset[i];
       if (!sr || !ss) return false;
-      return cur < sr || cur >= ss; // local ISO strings compare correctly (same tz)
+      // sunrise/sunset are local-naive ISO; read them as UTC then subtract the site offset → true instant.
+      const sunriseMs = Date.parse(sr.slice(0, 16) + ":00Z") - offMs;
+      const sunsetMs = Date.parse(ss.slice(0, 16) + ":00Z") - offMs;
+      if (!isFinite(sunriseMs) || !isFinite(sunsetMs)) return false;
+      return nowMs < sunriseMs || nowMs >= sunsetMs + DUSK_BUFFER_MS;
     } catch (e) { return false; }
   }
   // Build everything EXCEPT the temp-map grid (the slow part). Kicks off the grid fetch in parallel
