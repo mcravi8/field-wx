@@ -118,16 +118,18 @@ const WeatherAPI = (function () {
     const spd = (lv) => num(arrf(h, "wind_speed_" + lv + "hPa")[i], 0);
     const dir = (lv) => num(arrf(h, "wind_direction_" + lv + "hPa")[i], 0);
     const s850 = spd(850), d850 = dir(850), s700 = spd(700), d700 = dir(700);
-    const layers = [
-      { alt: 500, s: s850 * 0.85, d: d850 }, { alt: 1000, s: s850 * 0.92, d: d850 }, { alt: 1500, s: s850, d: d850 },
-      { alt: 2000, s: lerp(s850, s700, 1 / 3), d: lerpDir(d850, d700, 1 / 3) }, { alt: 2500, s: lerp(s850, s700, 2 / 3), d: lerpDir(d850, d700, 2 / 3) },
-      { alt: 3000, s: s700, d: d700 }];
+    // 250 m resolution. Below 850 hPa (~1500 m): a surface-friction taper of s850 (the
+    // 500 m-multiple factors match the prior 500 m profile). Above: a linear blend 850→700 hPa (~3000 m).
+    const fric = { 250: 0.81, 500: 0.85, 750: 0.89, 1000: 0.92, 1250: 0.96, 1500: 1 };
+    const layers = [];
+    for (let a = 250; a <= 1500; a += 250) layers.push({ alt: a, s: s850 * fric[a], d: d850 });
+    for (let a = 1750; a <= 3000; a += 250) { const t = (a - 1500) / 1500; layers.push({ alt: a, s: lerp(s850, s700, t), d: lerpDir(d850, d700, t) }); }
     return layers.map((l) => ({ alt: l.alt, speed: Math.round(l.s), dir: cardinal(l.d), dirDeg: Math.round(((l.d % 360) + 360) % 360) }));
   }
 
   function thermalBaseM(t, dp, el) { const T = isFinite(+t) ? +t : 15, D = isFinite(+dp) ? +dp : 10; return Math.max(0, Math.round(Math.max(0, T - D) * 122)); } // LCL height AGL (above ground) to stay coherent with the ground-relative sounding axis + windgram bands
   function thermalStrengthM(cape) { const c = isFinite(+cape) ? Math.max(0, +cape) : 0; return c === 0 ? 0 : Math.round(Math.min(Math.sqrt(c) * 0.08, 5) * 100) / 100; }
-  function shearM(aw) { if (!Array.isArray(aw) || aw.length < 2) return false; for (let i = 0; i < aw.length - 1; i++) { const a = +aw[i].dirDeg || 0, b = +aw[i + 1].dirDeg || 0; if (Math.abs(((b - a + 540) % 360) - 180) > 45) return true; } return false; }
+  function shearM(aw) { if (!Array.isArray(aw) || aw.length < 2) return false; for (let i = 0; i < aw.length - 1; i++) { const a = +aw[i].dirDeg || 0, ai = +aw[i].alt || 0; for (let j = i + 1; j < aw.length && (+aw[j].alt || 0) - ai <= 500; j++) { const b = +aw[j].dirDeg || 0; if (Math.abs(((b - a + 540) % 360) - 180) > 45) return true; } } return false; }
   function rateM(w, p, c, li, wc) {
     w = +w || 0; p = +p || 0; c = +c || 0; li = +li || 0; wc = +wc || 0;
     if (w > 55 || wc >= 95 || c > 2000) return "DANGER";
@@ -663,17 +665,20 @@ function _adaptFlight(resp, key, system) {
     if (R) base.fly = (R === "EXCELLENT" || R === "GOOD") ? "GO" : (R === "FAIR" ? "MARGINAL" : "NO-GO");
     if (Array.isArray(fl.altitudeWinds) && fl.altitudeWinds.length && Array.isArray(base.profile)) {
       const pick = function (a) { return fl.altitudeWinds.reduce(function (p, q) { return Math.abs(q.alt - a) < Math.abs(p.alt - a) ? q : p; }); };
-      const layers = [["SFC", 0], ["500m", 500], ["1000m", 1000], ["1500m", 1500], ["2000m", 2000], ["2500m", 2500], ["3000m", 3000]];
+      const layers = [["SFC", 0]];
+      for (var ma = 250; ma <= 3000; ma += 250) layers.push([ma + "m", ma]);
       base.profile = layers.map(function (L) {
         const lab = L[0], a = L[1];
         if (a === 0) return { alt: lab, spd: _r(cur.wind), deg: _r(cur.windDirDeg), dir: _degC8(cur.windDirDeg) };
         const w = pick(a);
         return { alt: lab, spd: _r(w.speed), deg: _r(w.dirDeg), dir: w.dir || _degC8(w.dirDeg) };
       });
-      // shear recomputed from the LIVE profile (genFlight had built it from mock winds)
+      // shear recomputed from the LIVE profile (genFlight had built it from mock winds).
+      // Measured over 500 m bands (every other 250 m row) so the severity thresholds stay calibrated.
       base.shear = [];
-      for (var si = 0; si < base.profile.length - 1; si++) {
-        var p0 = base.profile[si], p1 = base.profile[si + 1];
+      var band = base.profile.filter(function (p, idx) { return idx % 2 === 0; });
+      for (var si = 0; si < band.length - 1; si++) {
+        var p0 = band[si], p1 = band[si + 1];
         var dSpd = Math.abs(p1.spd - p0.spd), dd = Math.abs(p1.deg - p0.deg) % 360; if (dd > 180) dd = 360 - dd;
         var sv = dSpd + dd / 5;
         base.shear.push({ gap: p0.alt + "\u2192" + p1.alt, dSpd: dSpd, dDeg: dd, sev: sv < 7 ? "LOW" : sv < 15 ? "MOD" : sv < 24 ? "HIGH" : "SEVERE" });
