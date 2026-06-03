@@ -5,7 +5,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 function ScenarioBar({ mood, onPick }) {
-  const items = [["CLEAR", "CLR"], ["OVERCAST", "OVC"], ["RAIN", "RA"], ["SNOW", "SN"], ["BLIZZARD", "+SN"], ["NIGHT", "NGT"], ["STORM", "TS"]];
+  const items = [["CLEAR", "CLR"], ["OVERCAST", "OVC"], ["WINDY", "WND"], ["RAIN", "RA"], ["SNOW", "SN"], ["BLIZZARD", "+SN"], ["NIGHT", "NGT"], ["STORM", "TS"]];
   return (
     <div style={{ flexShrink: 0, display: "flex", alignItems: "stretch", borderBottom: "1px solid var(--line)", position: "relative", zIndex: 3, background: "var(--chrome2)" }}>
       <span className="mono" style={{ display: "flex", alignItems: "center", padding: "0 9px 0 14px", fontSize: 8, letterSpacing: "0.16em", color: "var(--fg-faint)", whiteSpace: "nowrap" }}>WX&nbsp;SIM</span>

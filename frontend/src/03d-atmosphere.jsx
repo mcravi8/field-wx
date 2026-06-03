@@ -51,12 +51,17 @@ function Atmosphere({ atmos, accent, theme, night }) {
       else if (a === "snow") n = 90;
       else if (a === "blizzard") n = 230;
       else if (a === "overcast") n = 11;
+      else if (a === "windy") n = 46;
       for (let i = 0; i < n; i++) {
         if (a === "snow" || a === "blizzard") {
           const heavy = a === "blizzard";
           parts.push({ x: Math.random() * W * 1.4 - W * 0.2, y: Math.random() * H, r: Math.random() * (heavy ? 2.0 : 1.6) + (heavy ? 0.8 : 0.6), sp: Math.random() * (heavy ? 1.1 : 0.4) + (heavy ? 0.7 : 0.18), dr: Math.random() * 0.5 - 0.25 });
         } else if (a === "overcast") {
           parts.push({ x: Math.random() * W, y: Math.random() * H * 0.85, w: Math.random() * 170 + 150, h: Math.random() * 60 + 48, sp: Math.random() * 0.22 + 0.07, o: Math.random() * 0.5 + 0.5 });
+        } else if (a === "windy") {
+          // mostly thin blown streaks; the first few are wider, slower 'wisps'
+          const wisp = i < 5, spanX = W * 1.5;
+          parts.push({ x: Math.random() * spanX - W * 0.25, y: Math.random() * H, len: wisp ? Math.random() * 70 + 80 : Math.random() * 26 + 16, sp: (wisp ? 1.1 : 3.0) + Math.random() * (wisp ? 0.8 : 3.5), o: (wisp ? 0.5 : 0.7) * (Math.random() * 0.5 + 0.5), wisp: wisp, ph: Math.random() * Math.PI * 2, amp: Math.random() * 6 + 2 });
         } else { // rain / storm — spawn across a wider span so the diagonal
           // fills the left edge too, with per-drop opacity for depth
           const spanX = W * 1.5;
@@ -151,6 +156,27 @@ function Atmosphere({ atmos, accent, theme, night }) {
           p.x += p.sp;
           if (p.x - p.w / 2 > W) { p.x = -p.w / 2; p.y = Math.random() * H * 0.85; }
         });
+      } else if (a === "windy") {
+        // wind streaming across — thin accent streaks + a few soft cloud wisps, gently undulating
+        ctx.lineCap = "round";
+        parts.forEach((p) => {
+          const yy = p.y + Math.sin(t * 0.02 + p.ph) * p.amp;
+          if (p.wisp) {
+            const cloud = light ? "120,124,132" : "200,203,210";
+            ctx.strokeStyle = `rgba(${cloud},${(0.05 * p.o).toFixed(3)})`;
+            ctx.lineWidth = 7;
+          } else {
+            ctx.strokeStyle = `rgba(${ar},${ag},${ab},${(0.30 * p.o).toFixed(3)})`;
+            ctx.lineWidth = 1.2;
+          }
+          ctx.beginPath();
+          ctx.moveTo(p.x, yy);
+          ctx.lineTo(p.x + p.len, yy + p.len * 0.05);
+          ctx.stroke();
+          p.x += p.sp;
+          if (p.x - p.len > W) { p.x = -p.len - Math.random() * W * 0.3; p.y = Math.random() * H; }
+        });
+        ctx.lineWidth = 1; ctx.lineCap = "butt";
       } else if (a === "clear-night") {
         stars.forEach((s) => {
           const tw = 0.4 + Math.sin(t * 0.02 + s.ph) * 0.3;

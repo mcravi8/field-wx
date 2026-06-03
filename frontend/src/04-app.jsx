@@ -115,7 +115,7 @@ function App() {
   const atmNight = appearance === "auto" ? (isNight && atmos !== "grid") : false;
   // live sky key for AUTO's per-condition gradient (NIGHT for a clear night; BLIZZARD shares SNOW)
   const condKey = simMode ? moodKey : ((liveView && liveView.m && liveView.m.key) || "CLEAR");
-  let skyKey = (condKey === "BLIZZARD") ? "SNOW" : condKey;
+  let skyKey = (condKey === "BLIZZARD") ? "SNOW" : (condKey === "WINDY") ? "CLEAR" : condKey;
   if (isNight && skyKey === "CLEAR") skyKey = "NIGHT";
   const unitsSystem = (liveView && liveView.units && liveView.units.system) || (unitsPref || "metric");
 

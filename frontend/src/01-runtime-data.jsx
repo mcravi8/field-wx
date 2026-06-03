@@ -597,11 +597,16 @@ function _liveStatus(key, windKmh, precipProb) {
 function _adaptCurrent(cur, key, today, system) {
   const tpl = (window.MOODS && (window.MOODS[key] || window.MOODS.OVERCAST)) || {};
   const wind = _r(cur.wind);
+  const gust = _r(cur.gust);
   const windKmh = system === "imperial" ? wind * 1.60934 : wind; // normalize for the GO/CAUTION status only
+  const gustKmh = system === "imperial" ? gust * 1.60934 : gust;
+  // On an otherwise clear/cloudy sky, show the WINDY atmosphere when it's genuinely blowing.
+  // (Precip skies keep their own animation — rain/snow read as more important than wind.)
+  const windy = (key === "CLEAR" || key === "OVERCAST") && (windKmh >= 33 || gustKmh >= 45);
   const precipProb = _r(cur.precipProb != null ? cur.precipProb : 0);
   const dew = cur.dewpoint != null ? _r(cur.dewpoint) : _r(cur.temp - (100 - (cur.humidity || 50)) / 5);
   return Object.assign({}, tpl, {
-    key: key, metar: _METAR[key], atmos: _ATMOS[key], cond: tpl.cond,
+    key: key, metar: _METAR[key], atmos: windy ? "windy" : _ATMOS[key], cond: tpl.cond,
     temp: _r(cur.temp), feels: _r(cur.feels != null ? cur.feels : cur.temp),
     hi: today ? _r(today.tempMax) : tpl.hi, lo: today ? _r(today.tempMin) : tpl.lo,
     wind: wind, gust: _r(cur.gust),
@@ -752,5 +757,55 @@ function useWeatherData(lat, lon, units) {
   return { data: data, loading: loading, error: error };
 }
 /* ===== end live data layer ===== */
+
+/* ===== WINDY scenario — a high-wind sky for clear/cloudy days =================
+   Live data picks the 'windy' atmosphere automatically (see _adaptCurrent above).
+   This adds WINDY to the mock/sim layer too, so it shows in the Tweaks "Live
+   weather" picker. The vendored genHourly/genFlight are keyed by mood and their
+   CODE_SEQ/FLIGHT tables aren't global, so WINDY borrows CLEAR's generators and
+   scales the wind-derived fields up. =========================================== */
+(function () {
+  if (typeof window === "undefined" || !window.MOODS) return;
+  if (typeof _ATMOS !== "undefined") _ATMOS.WINDY = "windy";
+  if (typeof _METAR !== "undefined") _METAR.WINDY = "CLR";
+  if (!window.MOODS.WINDY) {
+    var clr = window.MOODS.CLEAR || {};
+    window.MOODS.WINDY = Object.assign({}, clr, {
+      key: "WINDY", atmos: "windy", metar: "CLR", cond: "WINDY",
+      wind: 38, gust: 58, dir: "W", dirDeg: 270,
+      status: "CAUTION", statusNote: "STRONG WIND — HANDLE WITH CARE",
+    });
+  }
+  if (Array.isArray(window.MOOD_ORDER) && window.MOOD_ORDER.indexOf("WINDY") < 0) window.MOOD_ORDER.push("WINDY");
+
+  var MUL = 2.6; // CLEAR base winds → windy levels
+  if (typeof window.genHourly === "function" && !window.genHourly.__windy) {
+    var _gh = window.genHourly;
+    var gh = function (key, count) {
+      if (key !== "WINDY") return _gh(key, count);
+      return _gh("CLEAR", count).map(function (o) { return Object.assign({}, o, { wind: Math.round(o.wind * MUL) }); });
+    };
+    gh.__windy = true; window.genHourly = gh;
+  }
+  if (typeof window.genFlight === "function" && !window.genFlight.__windy) {
+    var _gf = window.genFlight;
+    var gf = function (key) {
+      if (key !== "WINDY") return _gf(key);
+      var f = _gf("CLEAR");
+      var prof = (f.profile || []).map(function (p) { return Object.assign({}, p, { spd: Math.round(p.spd * MUL) }); });
+      var shear = [];
+      for (var i = 0; i < prof.length - 1; i++) {
+        var dS = Math.abs(prof[i + 1].spd - prof[i].spd);
+        var dd = Math.abs(prof[i + 1].deg - prof[i].deg) % 360; if (dd > 180) dd = 360 - dd;
+        var sv = dS + dd / 5;
+        shear.push({ gap: prof[i].alt + "→" + prof[i + 1].alt, dSpd: dS, dDeg: dd, sev: sv < 7 ? "LOW" : sv < 15 ? "MOD" : sv < 24 ? "HIGH" : "SEVERE" });
+      }
+      var wg = f.windgram;
+      if (wg && Array.isArray(wg.rows)) wg = Object.assign({}, wg, { rows: wg.rows.map(function (row) { return row.map(function (c) { return Object.assign({}, c, { spd: Math.round(c.spd * MUL) }); }); }) });
+      return Object.assign({}, f, { profile: prof, shear: shear, windgram: wg, fly: "MARGINAL", flyNote: "STRONG WIND — HANDLE WITH CARE" });
+    };
+    gf.__windy = true; window.genFlight = gf;
+  }
+})();
 
 
