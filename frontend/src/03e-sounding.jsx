@@ -91,7 +91,7 @@ function SoundingChart({ sounding, series, blTop, cbH, thermalTop, flight }) {
     : [["AMBIENT", "var(--fg)", false], ["DEWPOINT", "var(--accent)", true], ["PARCEL", "#e6a23c", false], ["CLOUD BASE", "var(--accent)", true], ["THERMAL TOP", "#e6a23c", true], ["CONV. LAYER", "shade", false]];
 
   return (
-    <Panel pad={0} style={{ marginTop: 8 }}>
+    <Panel pad={0} style={{ marginTop: 8, marginBottom: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px 6px" }}>
         <Micro>{titleTxt}</Micro>
         <span className="mono" style={{ fontSize: 8, letterSpacing: "0.08em", color: "var(--fg-faint)" }}>{isIt ? "AMBIENTE · PARTICELLA" : "AMBIENT · PARCEL"}</span>

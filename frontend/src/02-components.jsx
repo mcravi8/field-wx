@@ -607,7 +607,14 @@ function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
         <span className="mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", color: stale ? "var(--accent)" : "var(--fg-faint)" }}>{stale ? "UPDATING…" : (contourStep ? "CONTOUR · " + contourStep + " M" : L.flight.mapNote)}</span>
       </div>
       {usable
-        ? <div ref={wrapRef} style={{ width: "100%", height: height, background: "var(--row-fill)" }} />
+        ? <div style={{ position: "relative" }}>
+            <div ref={wrapRef} style={{ width: "100%", height: height, background: "var(--row-fill)" }} />
+            {(isFinite(+map.lat0) && isFinite(+map.lon0)) ? (
+              <span className="mono" style={{ position: "absolute", right: 8, top: 8, zIndex: 600, padding: "3px 7px", borderRadius: 6, background: "rgba(10,12,16,0.6)", fontSize: 9, letterSpacing: "0.06em", color: "var(--fg)", pointerEvents: "none" }}>
+                {wxFmtCoord(+map.lat0, +map.lon0)}
+              </span>
+            ) : null}
+          </div>
         : <div style={{ width: "100%", height: height, background: "var(--row-fill)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span className="mono" style={{ fontSize: 10, letterSpacing: "0.18em", color: "var(--fg-faint)" }}>SYNC…</span>
           </div>}
