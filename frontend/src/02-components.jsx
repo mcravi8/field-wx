@@ -264,7 +264,7 @@ function _msContours(g, levels) {
   }
   return out;
 }
-function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
+function TopoMap({ map, height = 280, onPick, pickActive }) {
   const wrapRef = React.useRef(null);
   const mapRef = React.useRef(null);     // Leaflet map instance
   const heatRef = React.useRef(null);    // canvas for the temperature field
@@ -284,6 +284,7 @@ function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
   const [stale, setStale] = React.useState(false);     // viewing area lacks fresh data yet
   const [contourStep, setContourStep] = React.useState(0); // elevation interval (m) for the legend
   const [ready, setReady] = React.useState(!!_grabLeaflet());
+  const [pin, setPin] = React.useState(null);          // dropped-pin coords [lat, lon] for the map overlay
   // Only the live data layer emits the grid/bounds shape this map needs. SIM/mock mode and the
   // initial pre-fetch render pass the old genTempMap shape (pts with x/y, no grid) — guard against it
   // so a missing grid/center degrades to a placeholder instead of throwing inside Leaflet.
@@ -376,6 +377,7 @@ function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
           pickRef.current = LF.marker([la, lo], { icon: icon, interactive: false, keyboard: false }).addTo(m);
         }
       } catch (err) {}
+      setPin([la, lo]);   // update the coordinate overlay to the dropped pin (instant, before the fetch)
       if (onPickRef.current) onPickRef.current(la, lo);
     });
     setTimeout(function () { try { m.invalidateSize(); } catch (e) {} _fit(); _paintHeat(); _refetchElev(); }, 60);
@@ -569,16 +571,32 @@ function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
   }, [ready, usable]);
 
   // when the active SITE changes (map prop), reset the view+data to that site and redraw
+  const lastCenterRef = React.useRef(null);
   React.useEffect(function () {
     const m = mapRef.current; if (!m || !usable) return;
     try { m.invalidateSize(); } catch (e) {}   // container may have resized since this map last drew
     reqRef.current++;                 // cancel any in-flight pan refetch from the previous site
+    // drop the pin only on a genuine site change (centre moved) — NOT on a same-site data refresh
+    var _ck = (+map.lat0).toFixed(4) + "," + (+map.lon0).toFixed(4);
+    if (lastCenterRef.current !== null && lastCenterRef.current !== _ck) {
+      if (pickRef.current) { try { m.removeLayer(pickRef.current); } catch (e) {} pickRef.current = null; }
+      setPin(null);
+    }
+    lastCenterRef.current = _ck;
     dataRef.current = map; setStale(false);
     if (m._fit) m._fit();
     if (m._paintHeat) m._paintHeat();
     if (m._refetchElev) m._refetchElev();
     if (drawMarkersRef.current) drawMarkersRef.current();
   }, [map]);
+
+  // RESET (from the panel) clears the dropped pin + reverts the overlay to the site centre
+  React.useEffect(function () {
+    if (pickActive) return;
+    const m = mapRef.current;
+    if (pickRef.current && m) { try { m.removeLayer(pickRef.current); } catch (e) {} pickRef.current = null; }
+    setPin(null);
+  }, [pickActive]);
 
   // recolor contours when the appearance/theme flips: _paintContours reads data-theme at paint time,
   // but only fires on map events — so without this, a Dark/Light toggle wouldn't recolor until the next pan
@@ -611,7 +629,7 @@ function TopoMap({ map, height = 280, onPick, pickedLatLng }) {
             <div ref={wrapRef} style={{ width: "100%", height: height, background: "var(--row-fill)" }} />
             {(isFinite(+map.lat0) && isFinite(+map.lon0)) ? (
               <span className="mono" style={{ position: "absolute", right: 8, top: 8, zIndex: 600, padding: "3px 7px", borderRadius: 6, background: "rgba(10,12,16,0.6)", fontSize: 9, letterSpacing: "0.06em", color: "var(--fg)", pointerEvents: "none" }}>
-                {wxFmtCoord(+map.lat0, +map.lon0)}
+                {wxFmtCoord(pin ? pin[0] : +map.lat0, pin ? pin[1] : +map.lon0)}
               </span>
             ) : null}
           </div>
@@ -688,7 +706,7 @@ function FlightSection({ flight, hourly, onNav }) {
       ) : null}
       {/* order (per request): map (temp/vento) → windgram → curva di stato → vento in quota → rest.
           Tap the map to pin a point; the banner + windgram + curva di stato below reflect it. */}
-      <TopoMap map={flight.tempmap} onPick={onPick} />
+      <TopoMap map={flight.tempmap} onPick={onPick} pickActive={!!picked} />
       {(picked || picking) ? (
         <div className="wx-box" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--accent)", padding: "9px 12px", marginTop: 8 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
