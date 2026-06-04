@@ -46,9 +46,23 @@ function TopBar(props) {
   );
 }
 
+// per-condition sky gradients (mirrors the app's data-sky backgrounds) for each site card's weather background
+var WX_SKY_GRAD = {
+  "clear-day": "linear-gradient(180deg,#114078 0%,#1c559a 50%,#2769b0 100%)",
+  "clear-night": "linear-gradient(180deg,#0a142c 0%,#122146 55%,#1a2c54 100%)",
+  "overcast": "linear-gradient(180deg,#4f5e6d 0%,#69778a 52%,#7d8a98 100%)",
+  "rain": "linear-gradient(180deg,#212c38 0%,#37485a 55%,#475a6c 100%)",
+  "snow": "linear-gradient(180deg,#586878 0%,#76859a 52%,#94a1ae 100%)",
+  "blizzard": "linear-gradient(180deg,#586878 0%,#76859a 52%,#94a1ae 100%)",
+  "storm": "linear-gradient(180deg,#171c28 0%,#283242 55%,#374454 100%)",
+  "windy": "linear-gradient(180deg,#114078 0%,#1c559a 50%,#2769b0 100%)"
+};
+
 function ScreenSites(props) {
   var sites = props.sites || [];
   var activeId = props.activeId;
+  var wxAccent = props.accent || "#4f93e0";          // for the per-card Atmosphere tint
+  var wxTheme = props.theme || "dark";
   var onSelect = props.onSelect, onAdd = props.onAdd, onDelete = props.onDelete, onReorder = props.onReorder;
   var LS = (window.L) || {};
   var T = function (k, d) { return (typeof LS[k] === "string") ? LS[k] : d; };
@@ -298,9 +312,12 @@ function ScreenSites(props) {
                     transition: dragging ? "none" : "transform 0.18s ease",
                     border: "1px solid " + (isActive ? "var(--accent)" : "var(--card-line)"),
                     boxShadow: isActive ? "inset 3px 0 0 var(--accent)" : (dragging ? "0 6px 18px rgba(0,0,0,0.35)" : undefined),
-                    padding: "15px 16px", display: "flex", alignItems: "center", gap: 12,
-                    cursor: "pointer", userSelect: "none", touchAction: "pan-y"
+                    cursor: "pointer", userSelect: "none", touchAction: "pan-y",
+                    // background = this location's sky (darkened for text legibility); animation layers on top
+                    background: temps[s.id] ? ("linear-gradient(rgba(8,11,18,0.40),rgba(8,11,18,0.40)), " + (WX_SKY_GRAD[temps[s.id].atmos] || WX_SKY_GRAD["clear-day"])) : undefined
                   }}>
+                  {temps[s.id] ? <Atmosphere atmos={temps[s.id].atmos} accent={wxAccent} theme={wxTheme} night={!temps[s.id].isDay} density={0.4} /> : null}
+                  <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 12, padding: "15px 16px" }}>
                   {Handle(s.id)}
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -325,6 +342,7 @@ function ScreenSites(props) {
                   ) : (
                     <span className="mono" style={{ fontSize: 15, color: "var(--fg-dim)", flexShrink: 0, opacity: 0.5 }}>{"›"}</span>
                   )}
+                  </div>
                 </div>
               </div>
             );

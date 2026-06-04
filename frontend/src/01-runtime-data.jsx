@@ -551,7 +551,8 @@ const WeatherAPI = (function () {
       for (let i = 0; i < ids.length; i++) {
         const c = arr[i] && arr[i].current;
         if (c && c.temperature_2m != null && isFinite(+c.temperature_2m)) {
-          out[ids[i]] = { temp: Math.round(+c.temperature_2m), code: codeOf(intg(c.weather_code, 0)), isDay: c.is_day != null ? (c.is_day ? 1 : 0) : 1 };
+          const wc = intg(c.weather_code, 0), isDay = c.is_day != null ? (c.is_day ? 1 : 0) : 1;
+          out[ids[i]] = { temp: Math.round(+c.temperature_2m), code: codeOf(wc), isDay: isDay, atmos: atmosOf(condOf(wc), wc, isDay) };
         }
       }
       if (!Object.keys(out).length) throw new Error("sitescurrent: no usable temps");   // don't cache an empty result → fall back to last good

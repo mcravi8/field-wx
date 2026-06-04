@@ -6,7 +6,7 @@
    script so it shadows the global Atmosphere at runtime (same override pattern as
    TopBar/HomeNow/ScreenSites/FlightSection).
    ============================================================================ */
-function Atmosphere({ atmos, accent, theme, night }) {
+function Atmosphere({ atmos, accent, theme, night, density }) {
   const ref = React.useRef(null);
   const accentRef = React.useRef(accent);
   accentRef.current = accent;
@@ -16,6 +16,8 @@ function Atmosphere({ atmos, accent, theme, night }) {
   themeRef.current = theme;
   const nightRef = React.useRef(night);
   nightRef.current = night;
+  const densRef = React.useRef(density);   // particle-count multiplier (1 = full; cards run lighter)
+  densRef.current = (density == null || !isFinite(+density)) ? 1 : +density;
 
   React.useEffect(() => {
     const cv = ref.current;
@@ -52,6 +54,8 @@ function Atmosphere({ atmos, accent, theme, night }) {
       else if (a === "blizzard") n = 230;
       else if (a === "overcast") n = 11;
       else if (a === "windy") n = 46;
+      const dens = densRef.current || 1;
+      if (dens !== 1 && n > 0) n = Math.max(1, Math.round(n * dens));
       for (let i = 0; i < n; i++) {
         if (a === "snow" || a === "blizzard") {
           const heavy = a === "blizzard";
@@ -69,13 +73,13 @@ function Atmosphere({ atmos, accent, theme, night }) {
         }
       }
       if (a === "clear-night") {
-        for (let i = 0; i < 70; i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.8, r: Math.random() * 1.2 + 0.3, ph: Math.random() * Math.PI * 2 });
+        for (let i = 0; i < Math.max(8, Math.round(70 * dens)); i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.8, r: Math.random() * 1.2 + 0.3, ph: Math.random() * Math.PI * 2 });
       }
       if (nightRef.current && a !== "clear-night") {
-        for (let i = 0; i < 55; i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.7, r: Math.random() * 1.1 + 0.3, ph: Math.random() * Math.PI * 2 });
+        for (let i = 0; i < Math.max(6, Math.round(55 * dens)); i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.7, r: Math.random() * 1.1 + 0.3, ph: Math.random() * Math.PI * 2 });
       }
       if (a === "clear-day") {
-        for (let i = 0; i < 3; i++) parts.push({ x: Math.random() * W, y: 130 + Math.random() * (H * 0.45), w: 80 + Math.random() * 130, sp: 0.12 + Math.random() * 0.18, o: 0.4 + Math.random() * 0.5 });
+        for (let i = 0; i < Math.max(1, Math.round(3 * dens)); i++) parts.push({ x: Math.random() * W, y: 130 + Math.random() * (H * 0.45), w: 80 + Math.random() * 130, sp: 0.12 + Math.random() * 0.18, o: 0.4 + Math.random() * 0.5 });
       }
     };
 
